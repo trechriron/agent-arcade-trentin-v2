@@ -1,0 +1,7 @@
+gymnasium[atari]==0.28.1
+stable-baselines3==2.0.0
+torch>=2.1.0
+numpy<2.0.0
+PyYAML==6.0.1
+wandb==0.15.0
+tensorboard==2.15.1 
