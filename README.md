@@ -152,13 +152,13 @@ Train your agent, stake NEAR tokens on its performance, and compete for rewards!
 
 ### Getting Started with NEAR
 
-1. **Install NEAR CLI**:
+**Install NEAR CLI**:
 
 ```bash
 npm install -g near-cli
 ```
 
-2. **Login to Your NEAR Account**:
+**Login to Your NEAR Account**:
 
 ```bash
 # First-time login (opens web wallet)
@@ -168,7 +168,7 @@ agent-arcade login
 agent-arcade login --account-id alice.near
 ```
 
-3. **Check Your Balance**:
+**Check Your Balance**:
 
 ```bash
 agent-arcade balance
@@ -176,21 +176,21 @@ agent-arcade balance
 
 ### Staking and Rewards
 
-1. **Stake on Performance**:
+**Stake on Performance**:
 
 ```bash
 # Stake 10 NEAR on achieving score ≥ 15
 pong-arcade stake --model-path models/my_agent.zip --amount 10 --target-score 15 ## make sure to replace the model path with the path to your trained model
 ```
 
-2. **Evaluate Your Agent**:
+**Evaluate Your Agent**:
 
 ```bash
 # Automatically evaluates and claims rewards if successful
 agent-arcade pong evaluate
 ```
 
-3. **View Rewards**:
+**View Rewards**:
 
 ```bash
 # Check your earnings and statistics
@@ -199,7 +199,7 @@ agent-arcade pong stats
 
 ### Competition Features
 
-1. **Global Leaderboard**:
+**Global Leaderboard**:
 
 ```bash
 # View top players
@@ -209,14 +209,14 @@ agent-arcade pong leaderboard
 agent-arcade pong recent
 ```
 
-2. **Reward Structure**:
+**Reward Structure**:
 
 - Score ≥ 15: 3x stake
 - Score ≥ 10: 2x stake
 - Score ≥ 5: 1.5x stake
 - Score < 5: Stake goes to pool
 
-3. **Pool Statistics**:
+**Pool Statistics**:
 
 ```bash
 # View current pool balance
