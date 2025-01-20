@@ -11,14 +11,14 @@ Welcome to Agent Arcade! This guide will help you get started with training and 
 
 ## Installation
 
-1. **Clone the Repository**
+### **Clone the Repository**
 
 ```bash
 git clone https://github.com/your-username/agent-arcade.git
 cd agent-arcade
 ```
 
-2. **Set Up Python Environment**
+### **Set Up Python Environment**
 
 ```bash
 # Create and activate virtual environment
@@ -32,7 +32,7 @@ pip install -r requirements.txt
 pip install "gymnasium[accept-rom-license,atari]"
 ```
 
-3. **Install NEAR CLI**
+### **Install NEAR CLI**
 
 ```bash
 npm install -g near-cli

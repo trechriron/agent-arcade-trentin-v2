@@ -90,4 +90,4 @@ pong-arcade leaderboard recent
 
 - **Transaction Failed**: Check wallet balance and gas fees
 - **Stake Rejected**: Verify minimum stake amount
-- **Reward Not Received**: Contact support with transaction hash 
+- **Reward Not Received**: Contact support with transaction hash
