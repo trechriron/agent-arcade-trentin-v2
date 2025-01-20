@@ -4,7 +4,7 @@ A platform for training and competing with AI agents in classic arcade games usi
 
 ## 🎬 Demo: Trained Agent in Action
 
-Watch our trained DQN agent play Pong after completing its training run:
+Watch our trained AI agent play Pong after completing its training run:
 
 [Watch Demo Video](docs/Pong%20-%20Reinforcement%20Learning%20Demo.mov)
 
