@@ -12,12 +12,14 @@ Welcome to Agent Arcade! This guide will help you get started with training and 
 ## Installation
 
 1. **Clone the Repository**
+
 ```bash
 git clone https://github.com/your-username/agent-arcade.git
 cd agent-arcade
 ```
 
 2. **Set Up Python Environment**
+
 ```bash
 # Create and activate virtual environment
 python -m venv drl-env
@@ -31,6 +33,7 @@ pip install "gymnasium[accept-rom-license,atari]"
 ```
 
 3. **Install NEAR CLI**
+
 ```bash
 npm install -g near-cli
 ```
@@ -71,6 +74,4 @@ python scripts/evaluate_pong.py --model models/pong_dqn_1000000_steps.zip
 
 ## Need Help?
 
-- Check our [Troubleshooting Guide](troubleshooting.md)
-- Join our [Discord Community](https://discord.gg/your-invite)
-- Submit issues on GitHub 
+- Submit issues on GitHub

@@ -53,12 +53,14 @@ frame_stack: 4            # Number of frames to stack
 ## Optimization Tips
 
 1. **For Better Exploration**
+
    ```yaml
    exploration_fraction: 0.4
    exploration_final_eps: 0.01
    ```
 
 2. **For Stable Learning**
+
    ```yaml
    learning_rate: 0.00025
    buffer_size: 500000
@@ -66,6 +68,7 @@ frame_stack: 4            # Number of frames to stack
    ```
 
 3. **For Quick Adaptation**
+
    ```yaml
    target_update_interval: 1000
    gradient_steps: 4
@@ -74,6 +77,7 @@ frame_stack: 4            # Number of frames to stack
 ## Performance Monitoring
 
 Monitor these metrics in TensorBoard:
+
 - Episode rewards (target: consistently > 15)
 - Loss values (should stabilize over time)
 - Exploration rate (should decrease smoothly)
@@ -101,4 +105,4 @@ Monitor these metrics in TensorBoard:
 - CPU: 4+ cores
 - RAM: 8GB minimum
 - GPU: Optional but recommended
-- Storage: 1GB for models 
+- Storage: 1GB for models
