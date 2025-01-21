@@ -4,9 +4,7 @@ A platform for training and competing with AI agents in classic arcade games usi
 
 ## 🎬 Demo: Trained Agent in Action
 
-Watch our trained AI agent play Pong after completing its training run:
-
-[Watch Demo Video](docs/Pong%20-%20Reinforcement%20Learning%20Demo.mov)
+![Pong AI Agent Training Demo](videos/Pong%20Reinforcement%20Learning%20Demo%20Jan%2021%202025.gif)
 
 > This agent learned to play Pong from scratch through trial and error through deep reinforcement learning. Train your own agent and compete for rewards!
 
