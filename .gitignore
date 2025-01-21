@@ -1,7 +1,40 @@
-/scope
-/checkpoints
-/tensorboard
-/wandb
-/logs
-/drl-env
-/scope
+# Model files
+models/
+*.zip
+*.pkl
+*.h5
+*.pt
+*.pth
+*.onnx
+*.pb
+
+# Specific model directories and patterns
+**/models/
+**/*.model
+**/checkpoints/
+**/saved_models/
+
+# Training artifacts
+tensorboard/
+logs/
+runs/
+wandb/
+*.log
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.env
+.venv
+env/
+venv/
+ENV/
+drl-env/
+scope/
+checkpoints/
+tensorboard/
+wandb/
+logs/
