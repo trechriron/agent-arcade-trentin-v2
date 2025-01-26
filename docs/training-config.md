@@ -1,27 +1,118 @@
 # Training Configuration Guide
 
-Learn how to configure and optimize your AI agent's training process for maximum performance.
+This guide explains the configuration options for training agents in Agent Arcade.
 
-## Configuration File
+## Common Parameters
 
-The training configuration is managed through `configs/pong_sb3_config.yaml`. Here's a detailed breakdown of key parameters:
+These parameters are common across all games:
 
 ```yaml
-# Core Training Parameters
-total_timesteps: 1000000    # Total training steps
-learning_rate: 0.00025      # Learning rate for neural network
-buffer_size: 500000         # Size of replay buffer
-learning_starts: 100000     # Steps before learning begins
-batch_size: 256            # Batch size for training
-exploration_fraction: 0.4   # Fraction of total steps for exploration
-exploration_final_eps: 0.01 # Final exploration rate
+algo: "DQN"                    # Algorithm to use (currently only DQN supported)
+total_timesteps: 1000000       # Total number of training steps
+learning_rate: 0.00025         # Learning rate for the optimizer
+buffer_size: 500000            # Size of the replay buffer
+learning_starts: 100000        # Number of steps before learning starts
+batch_size: 256               # Batch size for training
+exploration_fraction: 0.4      # Fraction of total timesteps for exploration
+exploration_final_eps: 0.01    # Final exploration rate
+train_log_interval: 100       # Interval for logging training metrics
 
-# Network Optimization
-gamma: 0.99                # Discount factor
-target_update_interval: 1000 # Steps between target network updates
-gradient_steps: 4          # Gradient steps per update
-train_freq: 4             # Training frequency
-frame_stack: 4            # Number of frames to stack
+# Network optimization
+gamma: 0.99                   # Discount factor
+target_update_interval: 1000   # Steps between target network updates
+gradient_steps: 4             # Number of gradient steps per update
+train_freq: 4                 # Number of steps between updates
+frame_stack: 4                # Number of frames to stack
+
+# Preprocessing
+scale_rewards: true           # Whether to scale rewards
+normalize_frames: true        # Whether to normalize frames
+terminal_on_life_loss: true   # End episode on life loss
+```
+
+## Game-Specific Parameters
+
+### Pong
+
+```yaml
+env: "ALE/Pong-v5"            # Environment ID for Pong
+```
+
+### Space Invaders
+
+```yaml
+env: "ALE/SpaceInvaders-v5"   # Environment ID for Space Invaders
+difficulty: 0                 # Game difficulty (0-1)
+mode: 0                      # Game mode (0-15)
+```
+
+Space Invaders specific notes:
+
+- `difficulty`: Controls game difficulty (0: normal, 1: hard)
+- `mode`: Different game variations (0-15) affecting gameplay mechanics
+
+## Workshop and Visualization
+
+```yaml
+viz_interval: 25000           # Steps between visualization updates
+video_interval: 100000        # Steps between video recordings
+video_length: 400            # Length of recorded videos
+checkpoint_interval: 100000   # Steps between model checkpoints
+demo_mode: false             # Whether to run in demo mode
+```
+
+## Example Configurations
+
+### Pong Configuration
+
+```yaml
+algo: "DQN"
+env: "ALE/Pong-v5"
+total_timesteps: 1000000
+learning_rate: 0.00025
+buffer_size: 500000
+learning_starts: 100000
+batch_size: 256
+exploration_fraction: 0.4
+exploration_final_eps: 0.01
+```
+
+### Space Invaders Configuration
+
+```yaml
+algo: "DQN"
+env: "ALE/SpaceInvaders-v5"
+total_timesteps: 1000000
+learning_rate: 0.00025
+buffer_size: 500000
+learning_starts: 100000
+batch_size: 256
+exploration_fraction: 0.4
+exploration_final_eps: 0.01
+difficulty: 0
+mode: 0
+```
+
+## Using Configurations
+
+You can use these configurations through the CLI:
+
+```bash
+# Train Pong
+agent-arcade pong train --config configs/pong_sb3_config.yaml
+
+# Train Space Invaders
+agent-arcade space-invaders train --config configs/space_invaders_sb3_config.yaml
+```
+
+Or modify parameters directly:
+
+```bash
+# Train with visualization
+agent-arcade space-invaders train --config configs/space_invaders_sb3_config.yaml --render
+
+# Train with video recording
+agent-arcade space-invaders train --config configs/space_invaders_sb3_config.yaml --record
 ```
 
 ## Parameter Explanations

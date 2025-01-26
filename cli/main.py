@@ -1,8 +1,14 @@
-from core import agent_arcade
-from games.pong.commands import pong
+import click
+from .games.pong_arcade import pong
+from .games.space_invaders_arcade import space_invaders
 
-def main():
-    agent_arcade()
+@click.group()
+def cli():
+    """Agent Arcade CLI"""
+    pass
 
-if __name__ == "__main__":
-    main() 
+cli.add_command(pong)
+cli.add_command(space_invaders)
+
+if __name__ == '__main__':
+    cli() 

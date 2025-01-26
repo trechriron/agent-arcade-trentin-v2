@@ -38,3 +38,4 @@ checkpoints/
 tensorboard/
 wandb/
 logs/
+agent_arcade.egg-info/
