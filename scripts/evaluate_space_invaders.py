@@ -1,93 +1,135 @@
-import argparse
+import yaml
 import gymnasium as gym
+import torch
 import numpy as np
+import argparse
+from pathlib import Path
+from tqdm.auto import tqdm
 from stable_baselines3 import DQN
 from stable_baselines3.common.evaluation import evaluate_policy
-from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
-from stable_baselines3.common.atari_wrappers import (
-    NoopResetEnv,
-    MaxAndSkipEnv,
-    EpisodicLifeEnv,
-    FireResetEnv,
-    ClipRewardEnv,
-)
-from stable_baselines3.common.monitor import Monitor
-from pathlib import Path
+from stable_baselines3.common.vec_env import DummyVecEnv, VecVideoRecorder
+from train_space_invaders_optimized import make_env, NatureCNN
 
-def make_atari_env(env_id, rank=0, render_mode=None, difficulty=0, mode=0):
-    def _init():
-        env = gym.make(env_id, render_mode=render_mode, frameskip=1,
-                      difficulty=difficulty, mode=mode)
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)
-        env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():
-            env = FireResetEnv(env)
-        env = ClipRewardEnv(env)
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayScaleObservation(env)
-        env = gym.wrappers.FrameStack(env, 4)
-        env = Monitor(env)
-        return env
-    return _init
-
-def evaluate(model_path, episodes=10, render=True, difficulty=0, mode=0):
-    # Load the trained model
-    env = DummyVecEnv([
-        make_atari_env(
-            "ALE/SpaceInvaders-v5",
-            rank=0,
-            render_mode="human" if render else None,
-            difficulty=difficulty,
-            mode=mode
-        )
-    ])
+def evaluate(model_path, config_path, n_eval_episodes=100, render=True, record_video=True):
+    """
+    Evaluate a trained Space Invaders model with real-time visualization and competition metrics.
+    """
+    print("\n🎮 Space Invaders Agent Evaluation 🚀")
+    print("======================================")
     
-    # Load the model with the correct environment
-    model = DQN.load(model_path, env=env)
+    # Load config
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
     
-    # Run evaluation
-    rewards, lengths = evaluate_policy(
-        model,
-        env,
-        n_eval_episodes=episodes,
-        render=render,
-        deterministic=True,
-        return_episode_rewards=True
-    )
+    # Create eval environment with rendering
+    eval_env = gym.make("ALE/SpaceInvaders-v5", render_mode="human" if render else "rgb_array")
+    eval_env = DummyVecEnv([lambda: eval_env])
     
-    # Print evaluation results
-    print("\nEvaluation Results:")
-    print(f"Number of episodes: {episodes}")
-    print(f"Mean reward: {np.mean(rewards):.2f}")
-    print(f"Std reward: {np.std(rewards):.2f}")
-    print(f"Min reward: {np.min(rewards):.2f}")
-    print(f"Max reward: {np.max(rewards):.2f}")
-    print(f"Mean episode length: {np.mean(lengths):.2f}")
-    
-    # Return results for potential further analysis
-    return {
-        'mean_reward': np.mean(rewards),
-        'std_reward': np.std(rewards),
-        'min_reward': np.min(rewards),
-        'max_reward': np.max(rewards),
-        'mean_length': np.mean(lengths),
-        'rewards': rewards,
-        'lengths': lengths
+    # Load model
+    print("\n📱 Loading model...")
+    custom_objects = {
+        "policy_kwargs": {
+            "features_extractor_class": NatureCNN,
+            "features_extractor_kwargs": dict(features_dim=512),
+            "normalize_images": True
+        }
     }
+    model = DQN.load(model_path, env=eval_env, custom_objects=custom_objects)
+    
+    # Competition metrics
+    scores = []
+    max_score = float('-inf')
+    best_episodes = []
+    
+    # Set up video recording for highlights
+    if record_video:
+        video_folder = "videos/evaluation"
+        Path(video_folder).mkdir(parents=True, exist_ok=True)
+        
+        # Create a separate environment for recording
+        record_env = gym.make("ALE/SpaceInvaders-v5", render_mode="rgb_array")
+        record_env = DummyVecEnv([lambda: record_env])
+        record_env = VecVideoRecorder(
+            record_env,
+            video_folder=video_folder,
+            record_video_trigger=lambda x: x % 25 == 0,  # Record every 25th episode
+            video_length=3000,
+            name_prefix="space_invaders_eval"
+        )
+    
+    # Run evaluation with progress bar
+    print("\n🎯 Running evaluation...")
+    print("💡 Watch the agent play in real-time!")
+    pbar = tqdm(total=n_eval_episodes, desc="Evaluating episodes", position=0, leave=True)
+    
+    try:
+        for episode in range(n_eval_episodes):
+            obs = eval_env.reset()
+            episode_reward = 0
+            episode_frames = []
+            
+            while True:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, done, info = eval_env.step(action)
+                episode_reward += reward[0]
+                
+                if record_video:
+                    episode_frames.append(obs[0].copy())
+                
+                if done[0]:
+                    scores.append(episode_reward)
+                    if episode_reward > max_score:
+                        max_score = episode_reward
+                        if record_video:
+                            # Record the best episode
+                            obs_record = record_env.reset()
+                            for action_frame in episode_frames:
+                                record_env.step(action_frame)
+                            best_episodes = episode_frames
+                    break
+            
+            pbar.update(1)
+            if episode % 10 == 0:
+                pbar.set_postfix({
+                    'Max Score': f'{max(scores):.1f}',
+                    'Avg Score': f'{np.mean(scores):.1f}',
+                    'Current': f'{episode_reward:.1f}'
+                })
+        
+        pbar.close()
+        
+        # Print competition results
+        print("\n🏆 Competition Results:")
+        print(f"{'='*40}")
+        print(f"🥇 Max Score: {max(scores):.1f}")
+        print(f"📊 Average Score: {np.mean(scores):.1f} ± {np.std(scores):.1f}")
+        print(f"📈 Score Distribution:")
+        print(f"  - Top 10%: {np.percentile(scores, 90):.1f}")
+        print(f"  - Median: {np.median(scores):.1f}")
+        print(f"  - Bottom 10%: {np.percentile(scores, 10):.1f}")
+        print(f"🎯 Consistency: {len([s for s in scores if s > np.mean(scores)])/len(scores)*100:.1f}% above average")
+        
+        # Save highlight reel
+        if record_video and best_episodes:
+            highlight_path = f"{video_folder}/highlight_reel_score_{max_score:.1f}.mp4"
+            record_env.env_method("save_video", best_episodes, highlight_path)
+            print(f"\n🎥 Highlight reel saved: {highlight_path}")
+            print(f"   Best performance score: {max_score:.1f}")
+    
+    finally:
+        eval_env.close()
+        if record_video:
+            record_env.close()
+    
+    return np.mean(scores), np.std(scores)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate a trained Space Invaders agent")
-    parser.add_argument("--model", type=str, required=True,
-                      help="Path to the trained model file")
-    parser.add_argument("--episodes", type=int, default=10,
-                      help="Number of episodes to evaluate")
-    parser.add_argument("--no-render", action="store_true",
-                      help="Disable rendering")
-    parser.add_argument("--difficulty", type=int, default=0,
-                      help="Game difficulty (0 or 1)")
-    parser.add_argument("--mode", type=int, default=0,
-                      help="Game mode (0-15)")
-    
+    parser.add_argument("--model", type=str, required=True, help="Path to trained model")
+    parser.add_argument("--config", type=str, required=True, help="Path to config file")
+    parser.add_argument("--episodes", type=int, default=100, help="Number of evaluation episodes")
+    parser.add_argument("--no-render", action="store_true", help="Disable real-time rendering")
+    parser.add_argument("--record", action="store_true", help="Record evaluation videos")
     args = parser.parse_args()
-    evaluate(args.model, args.episodes, not args.no_render, args.difficulty, args.mode) 
+    
+    evaluate(args.model, args.config, args.episodes, not args.no_render, args.record) 

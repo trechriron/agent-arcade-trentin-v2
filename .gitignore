@@ -20,6 +20,7 @@ logs/
 runs/
 wandb/
 *.log
+/videos
 
 # Python cache files
 __pycache__/

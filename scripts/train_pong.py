@@ -10,8 +10,14 @@ import numpy as np
 from pathlib import Path
 from stable_baselines3 import DQN
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.atari_wrappers import AtariWrapper
-from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecVideoRecorder
+from stable_baselines3.common.atari_wrappers import (
+    NoopResetEnv,
+    MaxAndSkipEnv,
+    EpisodicLifeEnv,
+    FireResetEnv,
+    ClipRewardEnv
+)
+from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecVideoRecorder, VecTransposeImage
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 import torch.nn as nn
@@ -19,67 +25,62 @@ import torch.nn as nn
 class CustomCNN(BaseFeaturesExtractor):
     def __init__(self, observation_space, features_dim=512):
         super().__init__(observation_space, features_dim)
-        n_input_channels = observation_space.shape[0]
         
+        n_input_channels = observation_space.shape[0]  # Should be 4 for frame stack
+        
+        # Nature DQN architecture
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
             nn.ReLU(),
             nn.Flatten(),
         )
 
         # Compute shape by doing one forward pass
         with torch.no_grad():
-            n_flatten = self.cnn(torch.as_tensor(observation_space.sample()[None]).float()).shape[1]
-
-        self.linear = nn.Sequential(
-            nn.Linear(n_flatten, features_dim),
-            nn.ReLU(),
-        )
+            sample = torch.as_tensor(observation_space.sample()[None]).float() / 255.0
+            n_flatten = self.cnn(sample).shape[1]
+            
+        self.linear = nn.Linear(n_flatten, features_dim)
 
     def forward(self, observations):
+        observations = observations.float() / 255.0
         return self.linear(self.cnn(observations))
 
-class PongRewardScaler(gym.Wrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        self._running_mean = 0
-        self._running_std = 1
-        self._alpha = 0.99  # Exponential moving average factor
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        
-        # Update running statistics
-        self._running_mean = self._alpha * self._running_mean + (1 - self._alpha) * reward
-        self._running_std = self._alpha * self._running_std + (1 - self._alpha) * abs(reward - self._running_mean)
-        
-        # Clip and scale reward
-        scaled_reward = np.clip(reward / (self._running_std + 1e-8), -1, 1)
-        
-        return obs, scaled_reward, terminated, truncated, info
-
-def make_env(env_id, rank, render_mode=None, scale_rewards=True, normalize_frames=True, terminal_on_life_loss=True):
+def make_env(env_id, rank, seed=None, video_folder=None, video_length=400):
+    """Create Pong-specific environment with proper wrappers."""
     def _init():
-        # Create environment with basic Atari wrapper
-        env = gym.make(env_id, render_mode=render_mode, frameskip=4)
-        env = AtariWrapper(env, terminal_on_life_loss=terminal_on_life_loss)
+        env = gym.make(env_id, render_mode="rgb_array")
+        env = gym.wrappers.RecordEpisodeStatistics(env)
         
-        # Add observation normalization if requested
-        if normalize_frames:
-            env = gym.wrappers.TransformObservation(
-                env, lambda obs: obs / 255.0
+        # Pong-specific wrappers
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        if "FIRE" in env.unwrapped.get_action_meanings():
+            env = FireResetEnv(env)
+            
+        # No reward clipping or scaling for Pong
+        
+        # Ensure proper observation processing
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayScaleObservation(env, keep_dim=True)
+        
+        if video_folder is not None:
+            env = gym.wrappers.RecordVideo(
+                env,
+                video_folder=video_folder,
+                episode_trigger=lambda x: x < video_length
             )
         
-        # Add reward scaling if requested
-        if scale_rewards:
-            env = PongRewardScaler(env)
+        if seed is not None:
+            env.action_space.seed(seed + rank)
             
         return env
-    return _init
+    return _init()
 
 class WorkshopCallback(BaseCallback):
     def __init__(self, viz_interval, video_interval, video_length, checkpoint_interval, demo_mode=False, record_video=False):
@@ -97,8 +98,8 @@ class WorkshopCallback(BaseCallback):
         
     def _on_step(self):
         # Record episode rewards
-        if self.locals.get('done'):
-            reward = self.locals.get('rewards')[0]
+        if len(self.locals.get('dones', [])) > 0 and self.locals.get('dones')[0]:
+            reward = sum(self.locals.get('rewards', [0]))
             self.episode_rewards.append(reward)
             
             # Record video for significant improvements
@@ -108,121 +109,85 @@ class WorkshopCallback(BaseCallback):
         
         return True
     
-    def _record_video(self, name):
-        video_path = f"videos/{self.num_timesteps}_{name}"
-        Path("videos").mkdir(exist_ok=True)
-        
-        # Create a separate environment for recording
-        def make_env():
-            env = gym.make(self.training_env.envs[0].spec.id, render_mode="rgb_array")
-            env = AtariWrapper(env, terminal_on_life_loss=True)
-            return env
-        
-        video_env = VecVideoRecorder(
-            DummyVecEnv([make_env]),
-            video_path,
-            record_video_trigger=lambda x: x < self.video_length,
+    def _record_video(self, milestone):
+        """Record a video of the agent's performance."""
+        video_path = os.path.join("videos", str(self.n_calls), f"{milestone}")
+        os.makedirs(video_path, exist_ok=True)
+
+        # Create a single environment for recording
+        env = make_env(
+            env_id=self.training_env.envs[0].spec.id,
+            rank=0,
+            seed=None,
+            video_folder=video_path,
             video_length=self.video_length
         )
+        env = DummyVecEnv([lambda: env])
+        env = VecFrameStack(env, n_stack=4)
         
-        # Record episode using current policy
-        obs = video_env.reset()[0]
-        for _ in range(self.video_length):
-            action, _ = self.model.predict(obs, deterministic=True)
-            obs, _, done, _ = video_env.step(action)
-            if done.any():
-                obs = video_env.reset()[0]
-        
-        video_env.close()
+        try:
+            # Handle both old and new Gymnasium reset API
+            reset_result = env.reset()
+            if isinstance(reset_result, tuple):
+                obs, _ = reset_result
+            else:
+                obs = reset_result
+            
+            episode_reward = 0
+            for _ in range(self.video_length):
+                action, _ = self.model.predict(obs, deterministic=True)
+                step_result = env.step(action)
+                
+                # Handle both old and new Gymnasium step API
+                if len(step_result) == 5:
+                    obs, reward, terminated, truncated, _ = step_result
+                    done = terminated or truncated
+                else:
+                    obs, reward, done, _ = step_result
+                    
+                episode_reward += reward[0]
+                if done[0]:
+                    break
+            
+            return episode_reward
+        finally:
+            env.close()
 
 def train(config_path, render_training=False, use_wandb=False, demo_mode=False, record_video=False):
-    # Enable MPS fallback and optimization
-    os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-    torch.backends.mps.enable_mps = True
-    
-    # Set torch to use high performance mode
-    if torch.backends.mps.is_available():
-        torch.set_num_threads(6)  # Optimize thread usage for M1/M2
-
-    # Load YAML config
+    # Load and validate config
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+        
     with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
+        try:
+            config = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML config: {e}")
 
-    # Extract configuration
+    # Extract configuration with Pong-specific defaults
     algo_name = config.get("algo", "DQN")
     env_id = config.get("env", "ALE/Pong-v5")
-    total_timesteps = config.get("total_timesteps", 1000000)
-    learning_rate = config.get("learning_rate", 0.00025)
-    buffer_size = config.get("buffer_size", 250000)
-    learning_starts = config.get("learning_starts", 50000)
-    batch_size = config.get("batch_size", 256)
-    exploration_fraction = config.get("exploration_fraction", 0.2)
-    exploration_final_eps = config.get("exploration_final_eps", 0.01)
-    train_log_interval = config.get("train_log_interval", 100)
-    
-    # Network optimization parameters
-    gamma = config.get("gamma", 0.99)
-    target_update_interval = config.get("target_update_interval", 2000)
-    gradient_steps = config.get("gradient_steps", 2)
+    total_timesteps = config.get("total_timesteps", 2000000)  # Longer training
+    learning_rate = config.get("learning_rate", 0.0001)  # More stable learning
+    buffer_size = config.get("buffer_size", 100000)  # Smaller buffer for recent experiences
+    learning_starts = config.get("learning_starts", 50000)  # More initial exploration
+    batch_size = config.get("batch_size", 32)  # Smaller batches
     train_freq = config.get("train_freq", 4)
-    frame_stack = config.get("frame_stack", 4)
     
-    # Preprocessing settings
-    scale_rewards = config.get("scale_rewards", True)
-    normalize_frames = config.get("normalize_frames", True)
-    terminal_on_life_loss = config.get("terminal_on_life_loss", True)
-    
-    # Workshop settings
-    viz_interval = config.get("viz_interval", 25000)
-    video_interval = config.get("video_interval", 100000)
-    video_length = config.get("video_length", 400)
-    checkpoint_interval = config.get("checkpoint_interval", 100000)
-
-    # Initialize wandb if requested
-    if use_wandb:
-        import wandb
-        wandb.init(project="ai-arcade-pong", config=config)
-
-    # Create directories and ensure clean tensorboard logs
-    for dir_name in ["logs", "models", "tensorboard", "videos", "checkpoints"]:
-        Path(dir_name).mkdir(exist_ok=True)
-    
-    # Create a unique run directory for tensorboard
-    current_time = time.strftime("%Y%m%d-%H%M%S")
-    tensorboard_log_dir = f"./tensorboard/DQN_pong_{current_time}"
-    Path(tensorboard_log_dir).mkdir(parents=True, exist_ok=True)
-
     # Create vectorized environment
-    env = DummyVecEnv([
-        make_env(
-            env_id, 
-            rank=0,
-            render_mode="human" if (render_training or demo_mode) else None,
-            scale_rewards=scale_rewards,
-            normalize_frames=normalize_frames,
-            terminal_on_life_loss=terminal_on_life_loss
-        )
-    ])
-    env = VecFrameStack(env, n_stack=frame_stack)
+    n_envs = config.get("n_envs", 4)
+    env_fns = [lambda i=i: make_env(env_id, i, seed=42+i) for i in range(n_envs)]
+    env = DummyVecEnv(env_fns)
+    env = VecFrameStack(env, n_stack=4)
 
-    print(f"Action space: {env.action_space}")
-    print(f"Observation space: {env.observation_space}")
-    print(f"Training device: {'MPS' if torch.backends.mps.is_available() else 'CPU'}")
-    print(f"Demo mode: {'Enabled' if demo_mode else 'Disabled'}")
-    print(f"Video recording: {'Enabled' if record_video else 'Disabled'}")
-    print("\nTraining parameters:")
-    print(f"Total timesteps: {total_timesteps}")
-    print(f"Learning rate: {learning_rate}")
-    print(f"Batch size: {batch_size}")
-    print(f"Buffer size: {buffer_size}")
-    print(f"Learning starts: {learning_starts}")
-    print(f"Exploration fraction: {exploration_fraction}")
-    print(f"Target update interval: {target_update_interval}")
-    print(f"Frame stack: {frame_stack}")
-    print(f"Reward scaling: {'Enabled' if scale_rewards else 'Disabled'}")
-    print(f"Frame normalization: {'Enabled' if normalize_frames else 'Disabled'}")
+    # Initialize model with Pong-specific parameters
+    policy_kwargs = {
+        "net_arch": [64, 64],  # Simpler architecture
+        "features_extractor_class": CustomCNN,
+        "features_extractor_kwargs": {"features_dim": 512},
+        "normalize_images": True
+    }
 
-    # Initialize DQN model with optimized parameters
     model = DQN(
         "CnnPolicy",
         env,
@@ -230,74 +195,64 @@ def train(config_path, render_training=False, use_wandb=False, demo_mode=False, 
         buffer_size=buffer_size,
         learning_starts=learning_starts,
         batch_size=batch_size,
-        exploration_fraction=exploration_fraction,
-        exploration_final_eps=exploration_final_eps,
+        tau=1.0,  # Full target net update
+        gamma=0.99,
         train_freq=train_freq,
-        gradient_steps=gradient_steps,
-        target_update_interval=target_update_interval,
-        gamma=gamma,
-        verbose=1,
-        tensorboard_log=tensorboard_log_dir,  # Use the unique directory
-        device="mps",
-        policy_kwargs={
-            "optimizer_class": torch.optim.Adam,
-            "optimizer_kwargs": {"eps": 1e-5},
-            "features_extractor_class": CustomCNN,
-            "features_extractor_kwargs": {"features_dim": 512},
-            "net_arch": [512, 512]
-        }
+        gradient_steps=1,
+        target_update_interval=1000,
+        exploration_fraction=config.get("exploration_fraction", 0.3),
+        exploration_initial_eps=1.0,
+        exploration_final_eps=config.get("exploration_final_eps", 0.05),
+        tensorboard_log=f"./tensorboard/DQN_pong_{time.strftime('%Y%m%d-%H%M%S')}",
+        policy_kwargs=policy_kwargs,
+        device="auto"
     )
 
     # Configure logging with SB3's monitor
     new_logger = configure(
-        f"{tensorboard_log_dir}/logs",  # Put logs in tensorboard directory
+        f"./tensorboard/DQN_pong_{time.strftime('%Y%m%d-%H%M%S')}/logs",  # Put logs in tensorboard directory
         ["stdout", "csv", "tensorboard"]
     )
     model.set_logger(new_logger)
 
-    print(f"\nTensorBoard logging directory: {tensorboard_log_dir}")
+    print(f"\nTensorBoard logging directory: ./tensorboard/DQN_pong_{time.strftime('%Y%m%d-%H%M%S')}")
     print("To visualize training, run:")
-    print(f"tensorboard --logdir {tensorboard_log_dir}")
+    print(f"tensorboard --logdir ./tensorboard/DQN_pong_{time.strftime('%Y%m%d-%H%M%S')}")
 
-    # Setup callbacks
-    workshop_callback = WorkshopCallback(
-        viz_interval=viz_interval,
-        video_interval=video_interval,
-        video_length=video_length,
-        checkpoint_interval=checkpoint_interval,
-        demo_mode=demo_mode,
-        record_video=record_video
-    )
-    
-    checkpoint_callback = CheckpointCallback(
-        save_freq=checkpoint_interval,
-        save_path="./checkpoints/",
-        name_prefix="pong_model"
-    )
+    # Create callback
+    callbacks = [
+        WorkshopCallback(
+            viz_interval=config.get("viz_interval", 25000),
+            video_interval=config.get("video_interval", 100000),
+            video_length=config.get("video_length", 400),
+            checkpoint_interval=config.get("checkpoint_interval", 100000),
+            demo_mode=demo_mode,
+            record_video=record_video
+        ),
+        CheckpointCallback(
+            save_freq=config.get("checkpoint_interval", 100000),
+            save_path="checkpoints",
+            name_prefix="pong_model"
+        )
+    ]
 
+    # Train the model
     try:
-        # Train the model with more frequent logging
         model.learn(
             total_timesteps=total_timesteps,
-            log_interval=4,  # More frequent logging
-            progress_bar=True,
-            callback=[workshop_callback, checkpoint_callback]
+            callback=callbacks,
+            log_interval=config.get("train_log_interval", 100),
+            tb_log_name="DQN",
+            progress_bar=True
         )
-        
-        # Save final model
-        model_path = f"models/pong_dqn_{total_timesteps}_steps.zip"
-        model.save(model_path)
-        print(f"Training complete. Model saved as {model_path}")
-        
     except KeyboardInterrupt:
-        print("\nTraining interrupted. Saving current model...")
-        model.save("models/pong_dqn_interrupted.zip")
-        print("Model saved as models/pong_dqn_interrupted.zip")
-    
+        print("\nTraining interrupted. Saving model...")
     finally:
+        # Save the final model
+        model.save("models/pong_final")
         env.close()
-        if use_wandb:
-            wandb.finish()
+
+    return model
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DQN agent on Pong')
