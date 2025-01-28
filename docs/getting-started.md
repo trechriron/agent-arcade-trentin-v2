@@ -4,14 +4,14 @@ Welcome to Agent Arcade! This guide will help you get started with training and 
 
 ## Installation
 
-1. Create and activate a virtual environment:
+Create and activate a virtual environment:
 
 ```bash
 python -m venv drl-env
 source drl-env/bin/activate  # On Windows: drl-env\Scripts\activate
 ```
 
-2. Install dependencies:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -81,13 +81,13 @@ agent-arcade space-invaders stake --amount 10 --model models/my_space_invaders_a
 
 ### Game-Specific Tips
 
-#### Pong
+Pong
 
 - Focus on paddle positioning
 - Watch for ball trajectory patterns
 - Start with shorter training runs
 
-#### Space Invaders
+Space Invaders
 
 - Start with difficulty 0
 - Focus on survival in early training
