@@ -40,3 +40,4 @@ tensorboard/
 wandb/
 logs/
 agent_arcade.egg-info/
+.DS_Store

@@ -2,13 +2,14 @@
 
 A platform for training and competing with AI agents in classic arcade games using Stable Baselines3, Gymnasium, and the Arcade Learning Environment with staking powered by NEAR.
 
-## 🎬 Demo: Trained Agent in Action
+## 🎬 Demo: Trained Agents in Action
 
 <p align="center">
   <img src="videos/Pong%20Reinforcement%20Learning%20Demo%20Jan%2021%202025.gif" width="400" alt="Pong AI Agent Training Demo">
+  <img src="videos/Space%20Invaders.gif" width="400" alt="Space Invaders AI Agent Demo">
 </p>
 
-> This agent learned to play Pong from scratch through trial and error through deep reinforcement learning. Train your own agent and compete for rewards!
+> Our agents learn to play classic Atari games from scratch through deep reinforcement learning. Train your own agents and compete for rewards!
 
 ## 🧠 Core Concepts
 
@@ -30,7 +31,7 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 ### Key Components
 
-- **Environment**: Atari Pong (via Gymnasium/ALE) - provides game state and handles actions
+- **Environment**: Atari games (via Gymnasium/ALE) - provides game state and handles actions
 - **Agent**: DQN with custom CNN - processes game frames and decides actions
 - **Memory**: Replay buffer - stores experiences for learning
 - **Training Loop**: Alternates between playing and learning from experiences
@@ -38,8 +39,7 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 ## 🎮 Current Games
 
 - **Pong**: Deep Q-Network (DQN) implementation with optimized training parameters
-
-> More games will be added soon.
+- **Space Invaders**: DQN with enhanced reward shaping and optimized architecture
 
 ## 🚀 Quick Start
 
@@ -60,21 +60,49 @@ pip install "gymnasium[accept-rom-license,atari]"
 ### Training an Agent
 
 ```bash
-# Train from scratch with visualization
-python scripts/train_pong.py --render
+# Train Pong agent
+agent-arcade train pong --render  # With visualization
+agent-arcade train pong           # Without visualization (faster)
 
-# Train without visualization (faster)
-python scripts/train_pong.py
+# Train Space Invaders agent
+agent-arcade train space-invaders --render
+agent-arcade train space-invaders --config configs/space_invaders_optimized_sb3_config.yaml
 
 # Monitor training progress
-tensorboard --logdir ./tensorboard/DQN_pong_[timestamp]
+tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
 ```
 
-### Using Pre-trained Models
+### Evaluating Agents
 
 ```bash
-# Evaluate the pre-trained model
-python scripts/evaluate_pong.py --model models/pong_dqn_1000000_steps.zip
+# Evaluate Pong agent
+agent-arcade evaluate pong --model models/pong_final.zip --episodes 10 --render
+
+# Evaluate Space Invaders agent
+agent-arcade evaluate space-invaders --model models/space_invaders_optimized/final_model.zip --episodes 5 --render --record
+
+# View evaluation metrics and competition recommendations
+agent-arcade stats [game] --model [model_path]
+```
+
+### Competition and Staking
+
+```bash
+# Check your NEAR balance
+agent-arcade balance
+
+# Stake on agent performance
+agent-arcade stake pong --model models/pong_final.zip --amount 10 --target-score 15
+agent-arcade stake space-invaders --model models/space_invaders_optimized/final_model.zip --amount 5 --target-score 300
+
+# View competition leaderboard
+agent-arcade leaderboard [game]
+
+# View recent games and results
+agent-arcade recent [game]
+
+# Check pool statistics
+agent-arcade pool stats
 ```
 
 ## 🛠 Implementation Details
