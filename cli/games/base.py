@@ -92,6 +92,18 @@ class GameInterface(ABC):
         """Validate that a model file is valid for this game."""
         pass
     
+    @abstractmethod
+    def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
+        """Stake NEAR on agent performance.
+        
+        Args:
+            wallet: NEAR wallet instance
+            model_path: Path to the model to evaluate
+            amount: Amount of NEAR to stake
+            target_score: Target score to achieve
+        """
+        pass
+    
     def load_config(self, config_path: Optional[Path] = None) -> GameConfig:
         """Load and validate configuration.
         

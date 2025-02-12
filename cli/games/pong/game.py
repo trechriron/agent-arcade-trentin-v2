@@ -8,6 +8,7 @@ from loguru import logger
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult
 from cli.core.near import NEARWallet
+from cli.core.stake import StakeRecord
 
 class PongGame(GameInterface):
     """Pong game implementation."""
@@ -133,8 +134,28 @@ class PongGame(GameInterface):
     
     def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
         """Stake NEAR on Pong performance."""
-        # This will be implemented in Phase 3
-        pass
+        if not wallet.is_logged_in():
+            raise ValueError("Must be logged in to stake")
+        
+        if not self.validate_model(model_path):
+            raise ValueError("Invalid model file")
+        
+        # Verify target score is within range
+        min_score, max_score = self.get_score_range()
+        if not min_score <= target_score <= max_score:
+            raise ValueError(f"Target score must be between {min_score} and {max_score}")
+        
+        # Create stake record
+        stake_record = StakeRecord(
+            game=self.name,
+            model_path=str(model_path),
+            amount=amount,
+            target_score=target_score
+        )
+        
+        # Record stake
+        wallet.record_stake(stake_record)
+        logger.info(f"Successfully staked {amount} NEAR on achieving score {target_score}")
 
 def register():
     """Register the Pong game."""
