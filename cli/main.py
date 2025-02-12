@@ -1,150 +1,338 @@
-"""Agent Arcade CLI main entry point."""
-import click
+"""Agent Arcade CLI."""
+import os
 from pathlib import Path
-from typing import Optional
+import click
 from loguru import logger
+from typing import Optional
 
-from cli.core.near import NEARWallet
-from cli.games import get_game, list_games, GAMES
+from .core.wallet import NEARWallet, WalletConfig
+from .core.leaderboard import LeaderboardManager
+from .core.evaluation import EvaluationConfig, EvaluationPipeline
+from .games import get_registered_games, get_game_info
 
-VERSION = "0.1.0"
-
-def setup_logging():
-    """Configure logging for the CLI."""
-    logger.add(
-        "agent_arcade.log",
-        rotation="1 day",
-        retention="7 days",
-        level="INFO"
-    )
+# Initialize global managers
+wallet = NEARWallet()
+leaderboard_manager = LeaderboardManager()
 
 @click.group()
-@click.version_option(version=VERSION, prog_name="Agent Arcade")
+@click.version_option()
 def cli():
-    """Train and compete with AI agents using deep reinforcement learning."""
-    setup_logging()
+    """Agent Arcade CLI for training and evaluating RL agents."""
+    pass
 
-@cli.command()
-def games():
-    """List available games with descriptions."""
-    available_games = list_games()
-    if not available_games:
-        click.echo("No games available.")
-        return
-    
-    click.echo("\nAvailable Games:")
-    click.echo("================")
-    for game in available_games:
-        click.echo(f"\n{game['name']} (v{game['version']})")
-        click.echo(f"  {game['description']}")
+@cli.group()
+def wallet():
+    """Manage NEAR wallet."""
+    pass
 
-@cli.command()
-@click.option("--network", default="testnet", help="NEAR network to use")
-@click.option("--account-id", help="Specific NEAR account ID")
+@wallet.command()
+@click.option('--network', default='testnet', help='NEAR network to use')
+@click.option('--account-id', help='Optional specific account ID')
 def login(network: str, account_id: Optional[str]):
-    """Login to NEAR wallet."""
+    """Log in to NEAR wallet using web browser."""
     try:
-        wallet = NEARWallet(network)
-        success = wallet.login_with_cli(account_id)
-        if success:
-            click.echo("✅ Successfully logged in!")
-        else:
-            click.echo("❌ Login failed!")
+        wallet.config.network = network
+        success = wallet.login(account_id)
+        if not success:
+            logger.error("Login failed. Please try again.")
     except Exception as e:
         logger.error(f"Login failed: {e}")
-        click.echo("❌ Login failed! Check agent_arcade.log for details.")
 
-@cli.command()
-@click.argument("game")
-@click.option("--render/--no-render", default=False, help="Enable visualization")
-@click.option("--config", type=click.Path(exists=True), help="Path to config file")
-def train(game: str, render: bool, config: Optional[str]):
-    """Train an agent for a specific game."""
-    try:
-        game_instance = get_game(game)
-        config_path = Path(config) if config else None
-        model_path = game_instance.train(render=render, config_path=config_path)
-        click.echo(f"✅ Training complete! Model saved to: {model_path}")
-    except Exception as e:
-        logger.error(f"Training failed: {e}")
-        click.echo("❌ Training failed! Check agent_arcade.log for details.")
+@wallet.command()
+def logout():
+    """Log out from NEAR wallet."""
+    wallet.logout()
+    logger.info("Successfully logged out")
 
-@cli.command()
-@click.argument("game")
-@click.option("--model", required=True, type=click.Path(exists=True), help="Path to model file")
-@click.option("--episodes", default=10, help="Number of evaluation episodes")
-@click.option("--record/--no-record", default=False, help="Record evaluation videos")
-def evaluate(game: str, model: str, episodes: int, record: bool):
-    """Evaluate a trained model."""
-    try:
-        game_instance = get_game(game)
-        model_path = Path(model)
-        
-        if not game_instance.validate_model(model_path):
-            click.echo("❌ Invalid model for this game!")
-            return
-        
-        results = game_instance.evaluate(
-            model_path=model_path,
-            episodes=episodes,
-            record=record
+@wallet.command()
+def status():
+    """Check wallet login status."""
+    if wallet.is_logged_in():
+        logger.info(f"Logged in as {wallet.account_id} on {wallet.network}")
+        balance = wallet.get_balance()
+        logger.info(f"Balance: {balance} NEAR")
+    else:
+        logger.info("Not logged in")
+
+@cli.group()
+def leaderboard():
+    """View leaderboards."""
+    pass
+
+@leaderboard.command()
+@click.argument('game')
+@click.option('--limit', default=10, help='Number of entries to show')
+def top(game: str, limit: int):
+    """Show top scores for a game."""
+    game_board = leaderboard_manager.get_leaderboard(game)
+    entries = game_board.get_top_scores(limit)
+    
+    if not entries:
+        logger.info(f"No entries found for {game}")
+        return
+    
+    click.echo(f"\nTop {limit} scores for {game}:")
+    click.echo("-" * 80)
+    click.echo(f"{'Rank':<6}{'Player':<30}{'Score':<15}{'Success Rate':<15}")
+    click.echo("-" * 80)
+    
+    for i, entry in enumerate(entries, 1):
+        click.echo(
+            f"{i:<6}{entry.account_id:<30}"
+            f"{entry.score:<15.2f}{entry.success_rate*100:<14.1f}%"
         )
+
+@leaderboard.command()
+@click.argument('game')
+@click.option('--limit', default=10, help='Number of entries to show')
+def recent(game: str, limit: int):
+    """Show recent scores for a game."""
+    game_board = leaderboard_manager.get_leaderboard(game)
+    entries = game_board.get_recent_entries(limit)
+    
+    if not entries:
+        logger.info(f"No entries found for {game}")
+        return
+    
+    click.echo(f"\nRecent {limit} scores for {game}:")
+    click.echo("-" * 80)
+    click.echo(f"{'Player':<30}{'Score':<15}{'Success Rate':<15}")
+    click.echo("-" * 80)
+    
+    for entry in entries:
+        click.echo(
+            f"{entry.account_id:<30}"
+            f"{entry.score:<15.2f}{entry.success_rate*100:<14.1f}%"
+        )
+
+@leaderboard.command()
+@click.argument('game')
+def player(game: str):
+    """Show player's best score and rank for a game."""
+    if not wallet.is_logged_in():
+        logger.error("Must be logged in to view player stats")
+        return
+    
+    game_board = leaderboard_manager.get_leaderboard(game)
+    best_entry = game_board.get_player_best(wallet.account_id)
+    rank = game_board.get_player_rank(wallet.account_id)
+    
+    if not best_entry:
+        logger.info(f"No entries found for {wallet.account_id} in {game}")
+        return
+    
+    click.echo(f"\nStats for {wallet.account_id} in {game}:")
+    click.echo("-" * 80)
+    click.echo(f"Best Score: {best_entry.score:.2f}")
+    click.echo(f"Success Rate: {best_entry.success_rate*100:.1f}%")
+    click.echo(f"Rank: {rank}")
+    click.echo(f"Episodes Played: {best_entry.episodes}")
+
+@cli.command()
+@click.argument('game')
+@click.argument('model-path', type=click.Path(exists=True))
+@click.option('--episodes', default=100, help='Number of evaluation episodes')
+@click.option('--render/--no-render', default=False, help='Render evaluation episodes')
+@click.option('--verbose', default=1, help='Verbosity level')
+def evaluate(game: str, model_path: str, episodes: int, render: bool, verbose: int):
+    """Evaluate a trained model."""
+    if not wallet.is_logged_in():
+        logger.error("Must be logged in to evaluate models")
+        return
+    
+    games = get_registered_games()
+    if game not in games:
+        logger.error(f"Game {game} not found")
+        return
+    
+    game_info = get_game_info(game)
+    env = game_info.make_env()
+    model = game_info.load_model(model_path)
+    
+    config = EvaluationConfig(
+        n_eval_episodes=episodes,
+        render=render,
+        verbose=verbose
+    )
+    
+    pipeline = EvaluationPipeline(
+        game=game,
+        env=env,
+        model=model,
+        wallet=wallet,
+        leaderboard_manager=leaderboard_manager,
+        config=config
+    )
+    
+    try:
+        result = pipeline.run_and_record(Path(model_path))
         
-        click.echo("\n📊 Evaluation Results")
-        click.echo("===================")
-        click.echo(f"Score: {results.score:.2f}")
-        click.echo(f"Success Rate: {results.success_rate:.1%}")
-        click.echo(f"Best Episode: {results.best_episode_score:.2f}")
-        click.echo(f"Avg Episode Length: {results.avg_episode_length:.1f}")
+        click.echo(f"\nEvaluation Results for {game}:")
+        click.echo("-" * 80)
+        click.echo(f"Mean Reward: {result.mean_reward:.2f} ± {result.std_reward:.2f}")
+        click.echo(f"Success Rate: {result.success_rate*100:.1f}%")
+        click.echo(f"Episodes: {result.n_episodes}")
         
-        reward_multiplier = game_instance.calculate_reward_multiplier(results.score)
-        click.echo(f"\n🎯 Potential Reward Multiplier: {reward_multiplier}x")
-        
+        rank = leaderboard_manager.get_leaderboard(game).get_player_rank(wallet.account_id)
+        if rank:
+            click.echo(f"Current Rank: {rank}")
+    
     except Exception as e:
         logger.error(f"Evaluation failed: {e}")
-        click.echo("❌ Evaluation failed! Check agent_arcade.log for details.")
+    finally:
+        env.close()
 
-@cli.command()
-@click.argument("game")
-@click.option("--model", required=True, type=click.Path(exists=True), help="Path to model file")
-@click.option("--amount", required=True, type=float, help="Amount of NEAR to stake")
-@click.option("--target-score", required=True, type=float, help="Target score to achieve")
-def stake(game: str, model: str, amount: float, target_score: float):
-    """Stake NEAR on agent performance."""
+@cli.group()
+def stake():
+    """Manage stakes and evaluations."""
+    pass
+
+@stake.command()
+@click.argument('game')
+@click.argument('model-path', type=click.Path(exists=True))
+@click.option('--amount', required=True, type=float, help='Amount of NEAR to stake')
+@click.option('--target-score', required=True, type=float, help='Target score to achieve')
+def place(game: str, model_path: str, amount: float, target_score: float):
+    """Place a stake on agent performance."""
+    if not wallet.is_logged_in():
+        logger.error("Must be logged in to stake")
+        return
+    
     try:
-        game_instance = get_game(game)
-        model_path = Path(model)
+        # Verify model first
+        config = EvaluationConfig(n_eval_episodes=10, render=False, verbose=0)
         
-        if not game_instance.validate_model(model_path):
-            click.echo("❌ Invalid model for this game!")
+        games = get_registered_games()
+        if game not in games:
+            logger.error(f"Game {game} not found")
             return
         
-        # Validate target score is reasonable
-        min_score, max_score = game_instance.get_score_range()
-        if target_score < min_score or target_score > max_score:
-            click.echo(f"❌ Target score must be between {min_score} and {max_score}!")
-            return
+        game_info = get_game_info(game)
+        env = game_info.make_env()
+        model = game_info.load_model(model_path)
         
-        wallet = NEARWallet()
-        if not wallet.is_logged_in():
-            click.echo("❌ Please login first using 'agent-arcade login'")
-            return
+        pipeline = EvaluationPipeline(
+            game=game,
+            env=env,
+            model=model,
+            wallet=wallet,
+            leaderboard_manager=leaderboard_manager,
+            config=config
+        )
         
-        # Evaluate model to verify performance
-        results = game_instance.evaluate(model_path=model_path, episodes=5)
-        click.echo(f"\n📊 Model Verification Score: {results.score:.2f}")
+        result = pipeline.evaluate()
         
-        if results.score < target_score:
-            click.echo(f"⚠️  Warning: Model's current performance ({results.score:.2f}) is below target ({target_score})")
-            if not click.confirm("Do you want to proceed with staking?"):
+        if result.mean_reward < target_score * 0.8:  # 80% of target
+            logger.warning(f"Model's current performance ({result.mean_reward:.1f}) is well below target ({target_score})")
+            if not click.confirm("Continue with staking?"):
                 return
         
-        game_instance.stake(wallet, model_path, amount, target_score)
-        click.echo("✅ Stake placed successfully!")
+        # Record stake
+        stake_record = StakeRecord(
+            game=game,
+            model_path=model_path,
+            amount=amount,
+            target_score=target_score
+        )
+        wallet.record_stake(stake_record)
+        
+        logger.info(f"Successfully staked {amount} NEAR on achieving score {target_score}")
         
     except Exception as e:
         logger.error(f"Staking failed: {e}")
-        click.echo("❌ Staking failed! Check agent_arcade.log for details.")
+    finally:
+        env.close()
+
+@stake.command()
+@click.argument('game')
+@click.argument('stake-id')
+@click.option('--episodes', default=100, help='Number of evaluation episodes')
+@click.option('--render/--no-render', default=False, help='Render evaluation episodes')
+def evaluate(game: str, stake_id: str, episodes: int, render: bool):
+    """Evaluate a staked model."""
+    if not wallet.is_logged_in():
+        logger.error("Must be logged in to evaluate stakes")
+        return
+    
+    try:
+        # Get stake record
+        stake = wallet.get_stake(stake_id)
+        if not stake:
+            logger.error(f"Stake {stake_id} not found")
+            return
+        
+        # Run evaluation
+        config = EvaluationConfig(
+            n_eval_episodes=episodes,
+            render=render,
+            verbose=1
+        )
+        
+        games = get_registered_games()
+        if game not in games:
+            logger.error(f"Game {game} not found")
+            return
+        
+        game_info = get_game_info(game)
+        env = game_info.make_env()
+        model = game_info.load_model(stake.model_path)
+        
+        pipeline = EvaluationPipeline(
+            game=game,
+            env=env,
+            model=model,
+            wallet=wallet,
+            leaderboard_manager=leaderboard_manager,
+            config=config
+        )
+        
+        result = pipeline.evaluate()
+        
+        # Update stake record
+        stake.achieved_score = result.mean_reward
+        stake.status = "completed"
+        
+        # Calculate reward
+        if result.mean_reward >= stake.target_score:
+            multiplier = min(3.0, 1.0 + (result.mean_reward - stake.target_score) / stake.target_score)
+            reward = stake.amount * multiplier
+            logger.info(f"🎉 Success! Earned {reward:.2f} NEAR (x{multiplier:.1f})")
+        else:
+            logger.info("❌ Target score not achieved")
+        
+        wallet.record_stake(stake)
+        
+    except Exception as e:
+        logger.error(f"Evaluation failed: {e}")
+    finally:
+        env.close()
+
+@stake.command()
+def list():
+    """List all stakes."""
+    if not wallet.is_logged_in():
+        logger.error("Must be logged in to view stakes")
+        return
+    
+    stakes = wallet.get_stakes()
+    if not stakes:
+        logger.info("No stakes found")
+        return
+    
+    click.echo("\nYour Stakes:")
+    click.echo("-" * 80)
+    click.echo(f"{'Game':<15}{'Amount':<10}{'Target':<10}{'Status':<15}{'Score':<10}")
+    click.echo("-" * 80)
+    
+    for stake in stakes:
+        score = f"{stake.achieved_score:.1f}" if stake.achieved_score is not None else "-"
+        click.echo(
+            f"{stake.game:<15}"
+            f"{stake.amount:<10.1f}"
+            f"{stake.target_score:<10.1f}"
+            f"{stake.status:<15}"
+            f"{score:<10}"
+        )
 
 if __name__ == "__main__":
     cli() 
