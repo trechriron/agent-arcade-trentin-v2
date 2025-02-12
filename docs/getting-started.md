@@ -2,105 +2,71 @@
 
 Welcome to Agent Arcade! This guide will help you get started with training and competing with AI agents.
 
-## Installation
-
-Create and activate a virtual environment:
+## Quick Install
 
 ```bash
-python -m venv drl-env
-source drl-env/bin/activate  # On Windows: drl-env\Scripts\activate
+# One-line install (recommended)
+curl -sSL https://raw.githubusercontent.com/jbarnes850/agent-arcade/main/install.sh | bash
 ```
 
-Install dependencies:
+## Manual Installation
 
 ```bash
-pip install -r requirements.txt
+# Clone repository
+git clone https://github.com/jbarnes850/agent-arcade.git
+cd agent-arcade
 
-# Install Atari ROMs
-pip install "gymnasium[accept-rom-license,atari]"
+# Run install script
+./install.sh
 ```
 
-## Available Games
-
-Currently, Agent Arcade supports:
-
-### Pong
-
-- Classic paddle-based game
-- Simple action space (UP/DOWN)
-- Clear scoring system
-- Great for learning RL basics
-
-### Space Invaders
-
-- Shoot-em-up arcade classic
-- More complex action space (LEFT/RIGHT/FIRE)
-- Progressive difficulty
-- Multiple game modes
-
-## Quick Start
-
-### Training an Agent
+## Verify Installation
 
 ```bash
-# Train Pong agent
-agent-arcade pong train --render
+# Check CLI is working
+agent-arcade --version
 
-# Train Space Invaders agent
-agent-arcade space-invaders train --render
+# List available games
+agent-arcade list-games
 ```
 
-### Evaluating an Agent
+## Training an Agent
 
 ```bash
-# Evaluate Pong agent
-agent-arcade pong evaluate --model models/pong_dqn_1000000_steps.zip
+# Train with visualization
+agent-arcade train pong --render
 
-# Evaluate Space Invaders agent
-agent-arcade space-invaders evaluate --model models/space_invaders_dqn_1000000_steps.zip
+# Train with custom config
+agent-arcade train space-invaders --config configs/space_invaders_sb3_config.yaml
 ```
 
-### Staking and Competition
+## Evaluating an Agent
 
 ```bash
-# Stake on Pong performance
-agent-arcade pong stake --amount 10 --model models/my_pong_agent.zip --target-score 15
+# Basic evaluation
+agent-arcade evaluate pong --model models/pong_final.zip --episodes 10
 
-# Stake on Space Invaders performance
-agent-arcade space-invaders stake --amount 10 --model models/my_space_invaders_agent.zip --target-score 1000
+# Record evaluation video
+agent-arcade evaluate space-invaders --model models/space_invaders_final.zip --episodes 5
 ```
 
-## Training Tips
+## NEAR Integration
 
-### General Tips
+```bash
+# Login to NEAR wallet
+agent-arcade login
 
-- Start with default configurations
-- Monitor training through TensorBoard
-- Use video recording to track progress
-- Save checkpoints regularly
-
-### Game-Specific Tips
-
-Pong
-
-- Focus on paddle positioning
-- Watch for ball trajectory patterns
-- Start with shorter training runs
-
-Space Invaders
-
-- Start with difficulty 0
-- Focus on survival in early training
-- Use mode 0 for standard gameplay
-- Balance shooting and dodging strategies
+# Stake on performance
+agent-arcade stake pong --model models/pong_final.zip --amount 10 --target-score 15
+```
 
 ## Next Steps
 
-1. Read the [Training Configuration Guide](training-config.md) for detailed parameter tuning
-2. Explore the [Competition Guide](competition.md) for staking and rewards
-3. Check [Understanding Metrics](understanding-metrics.md) for performance analysis
-4. See [NEAR Integration](near-integration.md) for blockchain features
+1. [Training Configuration Guide](training-config.md)
+2. [Competition Guide](competition.md)
+3. [Understanding Metrics](understanding-metrics.md)
+4. [NEAR Integration](near-integration.md)
 
 ## Need Help?
 
-- Submit issues on GitHub
+- Submit issues on GitHub: [https://github.com/jbarnes850/agent-arcade/issues]
