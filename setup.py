@@ -3,19 +3,23 @@ from setuptools import setup, find_packages
 setup(
     name="agent-arcade",
     version="0.1.0",
-    packages=find_packages(),
+    packages=find_packages(include=['cli', 'cli.*']),
     include_package_data=True,
     install_requires=[
         "Click>=8.0",
-        "stable-baselines3==2.4.1",
-        "gymnasium[atari]==0.29.1",
+        "stable-baselines3==2.0.0",
+        "gymnasium[atari]==0.28.1",
         "ale-py==0.8.1",
         "AutoROM[accept-rom-license]==0.6.1",
-        "PyYAML>=6.0.1",
-        "wandb>=0.15.0",
-        "opencv-python>=4.8.0",
-        "torch>=2.0.0",
-        "tensorboard>=2.13.0"
+        "PyYAML==6.0.1",
+        "wandb==0.15.0",
+        "tensorboard==2.15.1",
+        "torch>=2.1.0",
+        "numpy<2.0.0",
+        "py-near>=0.1.0",
+        "base58>=2.1.1",
+        "loguru>=0.7.0",
+        "pydantic>=2.0.0"
     ],
     entry_points={
         "console_scripts": [

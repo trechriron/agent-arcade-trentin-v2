@@ -44,16 +44,29 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 ### Prerequisites
 
+- Python 3.8 or higher
+- Node.js and npm (for NEAR CLI)
+
+### Installation
+
 ```bash
-# Create and activate virtual environment
-python -m venv drl-env
-source drl-env/bin/activate  # On Windows: drl-env\Scripts\activate
+# One-line install (recommended)
+curl -sSL https://raw.githubusercontent.com/jbarnes850/agent-arcade/main/install.sh | bash
 
-# Install dependencies
-pip install -r requirements.txt
+# Or manual installation
+git clone https://github.com/jbarnes850/agent-arcade.git
+cd agent-arcade
+./install.sh
+```
 
-# Install Atari ROMs
-pip install "gymnasium[accept-rom-license,atari]"
+### Verify Installation
+
+```bash
+# Check CLI is working
+agent-arcade --version
+
+# List available games
+agent-arcade list-games
 ```
 
 ### Training an Agent
