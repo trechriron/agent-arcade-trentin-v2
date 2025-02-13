@@ -34,8 +34,9 @@ class SpaceInvadersGame(GameInterface):
     
     def _make_env(self, render: bool = False) -> gym.Env:
         """Create the Space Invaders environment with proper wrappers."""
+        # Use human rendering if requested, otherwise rgb_array
         render_mode = "human" if render else "rgb_array"
-        env = gym.make("ALE/SpaceInvaders-v5", render_mode=render_mode, frameskip=1)
+        env = gym.make("ALE/SpaceInvaders-v5", render_mode=render_mode, frameskip=4)
         
         # Add standard Atari wrappers
         env = NoopResetEnv(env, noop_max=30)
@@ -43,11 +44,20 @@ class SpaceInvadersGame(GameInterface):
         env = EpisodicLifeEnv(env)
         if "FIRE" in env.unwrapped.get_action_meanings():
             env = FireResetEnv(env)
+        env = ClipRewardEnv(env)  # Clip rewards for stability
         
-        # Observation preprocessing
+        # Memory-efficient preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayScaleObservation(env)
-        env = gym.wrappers.FrameStack(env, 4)
+        env = gym.wrappers.FrameStack(env, 3)  # Reduced frame stack
+        
+        # Add video recording wrapper if using rgb_array rendering
+        if not render:
+            env = gym.wrappers.RecordVideo(
+                env,
+                "videos/training",
+                episode_trigger=lambda x: x % 100 == 0  # Record every 100th episode
+            )
         
         return env
     
@@ -125,14 +135,14 @@ class SpaceInvadersGame(GameInterface):
     def get_default_config(self) -> GameConfig:
         """Get default Space Invaders configuration."""
         return GameConfig(
-            total_timesteps=2000000,  # Space Invaders needs more training
-            learning_rate=0.0001,     # Lower learning rate for stability
-            buffer_size=500000,       # Larger buffer for more experience
-            learning_starts=100000,
-            batch_size=128,
+            total_timesteps=2000000,
+            learning_rate=0.0001,
+            buffer_size=25000,
+            learning_starts=5000,
+            batch_size=32,
             exploration_fraction=0.1,
             target_update_interval=1000,
-            frame_stack=4
+            frame_stack=3
         )
     
     def get_score_range(self) -> Tuple[float, float]:
