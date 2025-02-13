@@ -3,7 +3,7 @@ use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault, Promise, BorshStorageKey};
 use near_sdk::json_types::U128;
-use near_sdk::schemars::JsonSchema;
+use near_sdk::schemars::{self, JsonSchema};
 
 pub type Balance = U128;
 
