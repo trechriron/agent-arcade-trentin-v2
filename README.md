@@ -44,8 +44,11 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- Node.js and npm (for NEAR CLI)
+- **Python**: Version 3.8 - 3.12 (3.13 not yet supported)
+- **Operating System**: Linux, macOS, or WSL2 on Windows
+- **Node.js & npm**: Required for NEAR CLI (v14 or higher)
+- **Storage**: At least 2GB free space
+- **Memory**: At least 4GB RAM recommended
 
 ### Installation
 
@@ -190,29 +193,37 @@ Train your agent, stake NEAR tokens on its performance, and compete for rewards!
 - Handles pool distribution
 - Automatic reward calculation
 
-### Getting Started with NEAR
+### NEAR Wallet Integration
 
-**Install NEAR CLI**:
-
+1. **Login with Web Browser**:
 ```bash
-npm install -g near-cli
+# Simple login (opens web browser)
+agent-arcade wallet login
+
+# Specify network and account
+agent-arcade wallet login --network testnet --account-id your-account.testnet
 ```
 
-**Login to Your NEAR Account**:
-
+2. **Check Login Status**:
 ```bash
-# First-time login (opens web wallet)
-agent-arcade login
-
-# Or specify your account
-agent-arcade login --account-id alice.near
+agent-arcade wallet status
 ```
 
-**Check Your Balance**:
-
+3. **View Balance**:
 ```bash
-agent-arcade balance
+agent-arcade wallet balance
 ```
+
+4. **Logout**:
+```bash
+agent-arcade wallet logout
+```
+
+The login process will:
+1. Open your default web browser
+2. Redirect to NEAR Wallet
+3. Ask for authorization
+4. Automatically complete the login after approval
 
 ### Staking and Rewards
 

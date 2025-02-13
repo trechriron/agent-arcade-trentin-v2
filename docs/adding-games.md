@@ -1,0 +1,612 @@
+# Adding New Games to Agent Arcade
+
+This guide walks you through the process of adding a new Atari Learning Environment (ALE) game to Agent Arcade.
+
+## Prerequisites
+
+1. **Install Agent Arcade**
+```bash
+# Clone the repository
+git clone https://github.com/jbarnes850/agent-arcade.git
+cd agent-arcade
+
+# Run installation script
+./install.sh
+```
+
+The installation script will:
+- Set up a Python virtual environment
+- Install all required dependencies
+- Configure ALE and Atari ROMs
+- Set up NEAR CLI integration
+
+2. **Verify Installation**
+```bash
+# Activate virtual environment (if not already active)
+source drl-env/bin/activate
+
+# Verify CLI works
+agent-arcade --version
+```
+
+## Quick Start Template
+
+We provide two ways to add a new game:
+
+### Option 1: Using the Automation Script (Recommended)
+```bash
+# Activate virtual environment if not already active
+source drl-env/bin/activate
+
+# Add a new game (example: Breakout)
+python scripts/add_game.py "Breakout" "ALE/Breakout-v5" "Classic brick-breaking arcade game" \
+    --min-score 0 \
+    --max-score 864 \
+    --success-threshold 100
+```
+
+### Option 2: Manual Setup
+```bash
+# 1. Create new game directory
+mkdir -p cli/games/your_game_name
+
+# 2. Create game implementation files
+touch cli/games/your_game_name/__init__.py
+touch cli/games/your_game_name/game.py
+
+# 3. Create configuration file
+touch configs/your_game_name.yaml
+```
+
+## Step-by-Step Guide
+
+### 1. Game Implementation
+
+Create `cli/games/your_game_name/game.py`:
+
+```python
+"""[Game Name] implementation using ALE."""
+import gymnasium as gym
+from pathlib import Path
+from typing import Optional, Tuple
+from stable_baselines3 import DQN
+from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
+from stable_baselines3.common.atari_wrappers import (
+    NoopResetEnv,
+    MaxAndSkipEnv,
+    EpisodicLifeEnv,
+    FireResetEnv,
+    ClipRewardEnv
+)
+from loguru import logger
+
+from cli.games.base import GameInterface, GameConfig, EvaluationResult
+from cli.core.near import NEARWallet
+from cli.core.stake import StakeRecord
+
+class YourGameNameGame(GameInterface):
+    """[Game Name] implementation."""
+    
+    @property
+    def name(self) -> str:
+        return "your-game-name"
+    
+    @property
+    def description(self) -> str:
+        return "Description of your game"
+    
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+    
+    def _make_env(self, render: bool = False) -> gym.Env:
+        """Create the game environment with proper wrappers."""
+        render_mode = "human" if render else "rgb_array"
+        env = gym.make("ALE/YourGame-v5", render_mode=render_mode, frameskip=1)
+        
+        # Add standard Atari wrappers
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        if "FIRE" in env.unwrapped.get_action_meanings():
+            env = FireResetEnv(env)
+        
+        # Observation preprocessing
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayScaleObservation(env)
+        env = gym.wrappers.FrameStack(env, 4)
+        
+        return env
+    
+    def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
+        """Train agent."""
+        config = self.load_config(config_path)
+        
+        # Create vectorized environment
+        env = DummyVecEnv([lambda: self._make_env(render)])
+        env = VecFrameStack(env, config.frame_stack)
+        
+        # Create and train the model
+        model = DQN(
+            "CnnPolicy",
+            env,
+            learning_rate=config.learning_rate,
+            buffer_size=config.buffer_size,
+            learning_starts=config.learning_starts,
+            batch_size=config.batch_size,
+            exploration_fraction=config.exploration_fraction,
+            target_update_interval=config.target_update_interval,
+            tensorboard_log=f"./tensorboard/{self.name}"
+        )
+        
+        logger.info(f"Training {self.name} agent for {config.total_timesteps} timesteps...")
+        model.learn(total_timesteps=config.total_timesteps)
+        
+        # Save the model
+        model_path = Path(f"models/{self.name}_final.zip")
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model.save(str(model_path))
+        logger.info(f"Model saved to {model_path}")
+        
+        return model_path
+    
+    def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
+        """Evaluate a trained model."""
+        env = DummyVecEnv([lambda: self._make_env(record)])
+        env = VecFrameStack(env, 4)
+        
+        model = DQN.load(model_path, env=env)
+        
+        total_score = 0
+        episode_lengths = []
+        best_score = float('-inf')
+        successes = 0
+        
+        for episode in range(episodes):
+            obs = env.reset()[0]
+            done = False
+            episode_score = 0
+            episode_length = 0
+            
+            while not done:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, _ = env.step(action)
+                episode_score += reward[0]
+                episode_length += 1
+                done = terminated[0] or truncated[0]
+            
+            total_score += episode_score
+            episode_lengths.append(episode_length)
+            best_score = max(best_score, episode_score)
+            if episode_score >= YOUR_SUCCESS_THRESHOLD:  # Define success threshold
+                successes += 1
+        
+        return EvaluationResult(
+            score=total_score / episodes,
+            episodes=episodes,
+            success_rate=successes / episodes,
+            best_episode_score=best_score,
+            avg_episode_length=sum(episode_lengths) / len(episode_lengths)
+        )
+    
+    def get_default_config(self) -> GameConfig:
+        """Get default configuration."""
+        return GameConfig(
+            total_timesteps=1000000,
+            learning_rate=0.00025,
+            buffer_size=250000,
+            learning_starts=50000,
+            batch_size=256,
+            exploration_fraction=0.2,
+            target_update_interval=2000,
+            frame_stack=4
+        )
+    
+    def get_score_range(self) -> Tuple[float, float]:
+        """Get score range."""
+        return (MIN_SCORE, MAX_SCORE)  # Define your game's score range
+    
+    def validate_model(self, model_path: Path) -> bool:
+        """Validate model file."""
+        try:
+            env = DummyVecEnv([lambda: self._make_env()])
+            DQN.load(model_path, env=env)
+            return True
+        except Exception as e:
+            logger.error(f"Invalid model file: {e}")
+            return False
+    
+    def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
+        """Stake NEAR on performance."""
+        if not wallet.is_logged_in():
+            raise ValueError("Must be logged in to stake")
+        
+        if not self.validate_model(model_path):
+            raise ValueError("Invalid model file")
+        
+        # Verify target score is within range
+        min_score, max_score = self.get_score_range()
+        if not min_score <= target_score <= max_score:
+            raise ValueError(f"Target score must be between {min_score} and {max_score}")
+        
+        # Create stake record
+        stake_record = StakeRecord(
+            game=self.name,
+            model_path=str(model_path),
+            amount=amount,
+            target_score=target_score
+        )
+        
+        # Record stake
+        wallet.record_stake(stake_record)
+        logger.info(f"Successfully staked {amount} NEAR on achieving score {target_score}")
+
+def register():
+    """Register the game."""
+    from cli.games import register_game
+    register_game("your-game-name", YourGameNameGame)
+```
+
+### 2. Game Registration
+
+Create `cli/games/your_game_name/__init__.py`:
+
+```python
+"""[Game Name] package."""
+from .game import register
+
+__all__ = ["register"]
+```
+
+### 3. Configuration File
+
+Create `configs/your_game_name.yaml`:
+
+```yaml
+# [Game Name] Training Configuration
+
+# Training parameters
+total_timesteps: 1000000  # Total training steps
+learning_rate: 0.00025    # Learning rate for optimization
+buffer_size: 250000       # Size of replay buffer
+learning_starts: 50000    # Steps before starting learning
+batch_size: 256          # Batch size for training
+exploration_fraction: 0.2 # Fraction of training for exploration
+target_update_interval: 2000  # Steps between target network updates
+frame_stack: 4           # Number of frames to stack
+
+# Environment settings
+env_id: "ALE/YourGame-v5"
+frame_skip: 4            # Number of frames to skip
+noop_max: 30            # Max random no-ops at start
+
+# Model architecture
+policy: "CnnPolicy"      # Policy network type
+features_extractor: "NatureCNN"  # CNN architecture
+features_dim: 512       # Feature dimension
+
+# Preprocessing
+normalize_images: true   # Normalize pixel values
+grayscale: true         # Convert to grayscale
+resize_shape: [84, 84]  # Input image size
+
+# Evaluation settings
+eval_episodes: 100      # Episodes for evaluation
+eval_deterministic: true # Use deterministic actions
+render_eval: false      # Render during evaluation
+
+# Logging
+tensorboard_log: true   # Enable TensorBoard logging
+save_freq: 100000       # Save frequency in timesteps
+log_interval: 1000      # Logging interval in timesteps
+```
+
+## Key Considerations
+
+1. **Environment ID**: Find the correct ALE environment ID from [Gymnasium ALE](https://gymnasium.farama.org/environments/atari/).
+
+2. **Score Range**: Define appropriate `MIN_SCORE` and `MAX_SCORE` for your game.
+
+3. **Success Threshold**: Set `YOUR_SUCCESS_THRESHOLD` based on what constitutes good performance.
+
+4. **Hyperparameters**: Adjust training parameters in the config file based on game complexity.
+
+5. **Environment Wrappers**: Add game-specific wrappers if needed (e.g., `FireResetEnv` for games requiring FIRE to start).
+
+## Testing Your Implementation
+
+1. **Verify Environment**:
+```bash
+# Activate virtual environment if not already active
+source drl-env/bin/activate
+
+# Test environment creation
+python3 -c "import gymnasium; env = gymnasium.make('ALE/YourGame-v5')"
+```
+
+2. **Verify Game Registration**:
+```bash
+agent-arcade list-games  # Your game should appear
+```
+
+3. **Test Training**:
+```bash
+agent-arcade train your-game-name --render
+```
+
+4. **Test Evaluation**:
+```bash
+agent-arcade evaluate your-game-name --model models/your_game_name_final.zip
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Environment Not Found**
+```bash
+# Verify ALE installation
+python3 -c "from ale_py import ALEInterface; ALEInterface()"
+
+# Check ROM installation
+ls -l $HOME/.local/lib/python*/site-packages/ale_py/roms/
+```
+
+2. **ROM Installation Issues**
+```bash
+# Manual ROM installation
+ROMS_DIR="$HOME/.local/lib/python*/site-packages/ale_py/roms"
+wget https://github.com/openai/atari-py/raw/master/atari_py/atari_roms/your_game.bin -P "$ROMS_DIR"
+chmod 644 "$ROMS_DIR/your_game.bin"
+```
+
+3. **Python Version Issues**
+```bash
+# Check Python version
+python3 --version  # Should be between 3.8 and 3.12
+```
+
+4. **Import Errors**
+```bash
+# Check if all dependencies are installed
+pip list | grep -E "gymnasium|stable-baselines3|ale-py"
+
+# Reinstall dependencies in correct order
+pip install "gymnasium[atari]==0.28.1"
+pip install "stable-baselines3==2.0.0"
+pip install "ale-py==0.8.1"
+```
+
+5. **Training Issues**
+```bash
+# Check CUDA availability (if using GPU)
+python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+
+# Monitor system resources
+top  # Check CPU/memory usage
+nvidia-smi  # Check GPU usage (if applicable)
+
+# Enable verbose logging
+export PYTHONPATH=.
+python3 -m cli.games.your_game_name.game --verbose
+```
+
+6. **Evaluation Errors**
+```bash
+# Test environment rendering
+python3 -c "import gymnasium as gym; env = gym.make('ALE/YourGame-v5', render_mode='human')"
+
+# Check model loading
+python3 -c "from stable_baselines3 import DQN; DQN.load('path/to/model.zip')"
+```
+
+## Best Practices
+
+1. **Documentation**:
+   - Add clear game description
+   - Document any game-specific parameters
+   - Include expected score ranges
+
+2. **Testing**:
+   - Test all CLI commands
+   - Verify model saving/loading
+   - Check staking functionality
+
+3. **Configuration**:
+   - Start with default parameters
+   - Document any deviations
+   - Include game-specific settings
+
+## Example Games
+
+See implementations of:
+
+- `cli/games/pong/`
+- `cli/games/space_invaders/`
+
+For reference on structure and best practices.
+
+## Advanced Topics
+
+### 1. Custom Environment Wrappers
+
+For games requiring special handling:
+
+```python
+class CustomRewardWrapper(gym.Wrapper):
+    """Example custom reward wrapper."""
+    
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        # Modify reward based on game-specific logic
+        modified_reward = self._calculate_reward(reward, info)
+        return obs, modified_reward, terminated, truncated, info
+    
+    def _calculate_reward(self, reward, info):
+        # Implement custom reward logic
+        return reward
+
+# Use in _make_env
+env = CustomRewardWrapper(env)
+```
+
+### 2. Advanced Training Configuration
+
+For complex games needing special treatment:
+
+```yaml
+# Advanced configuration options
+advanced_training:
+  # Prioritized Experience Replay
+  prioritized_replay: true
+  alpha: 0.6
+  beta0: 0.4
+  
+  # N-step Learning
+  n_step: 3
+  
+  # Dueling Network
+  dueling: true
+  
+  # Double Q-Learning
+  double_q: true
+  
+  # Gradient Clipping
+  max_grad_norm: 10
+```
+
+### 3. Custom Feature Extraction
+
+For games with unique visual patterns:
+
+```python
+import torch.nn as nn
+
+class CustomCNN(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 512):
+        super().__init__(observation_space, features_dim)
+        n_input_channels = observation_space.shape[0]
+        
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(
+                torch.as_tensor(observation_space.sample()[None]).float()
+            ).shape[1]
+        
+        self.linear = nn.Sequential(
+            nn.Linear(n_flatten, features_dim),
+            nn.ReLU()
+        )
+    
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.cnn(observations))
+
+# Use in training
+policy_kwargs = dict(
+    features_extractor_class=CustomCNN,
+    features_extractor_kwargs=dict(features_dim=512)
+)
+```
+
+### 4. Performance Optimization
+
+Tips for improving training efficiency:
+
+1. **Memory Management**:
+```python
+# Clear GPU memory between training runs
+import torch
+torch.cuda.empty_cache()
+
+# Monitor memory usage
+from pynvml import *
+nvmlInit()
+handle = nvmlDeviceGetHandleByIndex(0)
+info = nvmlDeviceGetMemoryInfo(handle)
+print(f"Free memory: {info.free/1024**2:.2f}MB")
+```
+
+2. **Vectorized Environments**:
+```python
+# Use multiple environments for parallel training
+n_envs = 4  # Number of parallel environments
+env = SubprocVecEnv([lambda: make_env() for _ in range(n_envs)])
+```
+
+3. **Frame Skipping**:
+```python
+# Implement efficient frame skipping
+env = MaxAndSkipEnv(env, skip=4)  # Process every 4th frame
+```
+
+### 5. Testing Framework
+
+Example test suite structure:
+
+```python
+# tests/games/test_your_game.py
+import pytest
+from cli.games.your_game_name.game import YourGameNameGame
+
+def test_environment_creation():
+    game = YourGameNameGame()
+    env = game._make_env(render=False)
+    assert env is not None
+    env.close()
+
+def test_model_training():
+    game = YourGameNameGame()
+    model_path = game.train(render=False, total_timesteps=1000)
+    assert model_path.exists()
+
+def test_evaluation():
+    game = YourGameNameGame()
+    model_path = Path("models/test_model.zip")
+    result = game.evaluate(model_path, episodes=2)
+    assert result.episodes == 2
+```
+
+## Contributing Guidelines
+
+1. **Code Style**:
+   - Follow PEP 8 guidelines
+   - Use type hints
+   - Document all public methods
+   - Add meaningful comments
+
+2. **Testing Requirements**:
+   - Unit tests for core functionality
+   - Integration tests for training/evaluation
+   - Performance benchmarks
+   - Documentation updates
+
+3. **Pull Request Process**:
+   - Create feature branch
+   - Add tests
+   - Update documentation
+   - Submit PR with description
+
+## Support
+
+For additional help:
+
+1. **Discord Community**: [Join our Discord](https://discord.gg/your-invite)
+2. **GitHub Issues**: [Report bugs](https://github.com/your-username/agent-arcade/issues)
+3. **Documentation**: [Read the docs](https://your-username.github.io/agent-arcade)
+
+## Resources
+
+- [Gymnasium Documentation](https://gymnasium.farama.org/)
+- [Stable-Baselines3 Guide](https://stable-baselines3.readthedocs.io/)
+- [NEAR Protocol Docs](https://docs.near.org/)
+- [Atari Learning Environment](https://github.com/mgbellemare/Arcade-Learning-Environment)

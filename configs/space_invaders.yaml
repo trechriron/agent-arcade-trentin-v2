@@ -1,0 +1,47 @@
+# Space Invaders Training Configuration
+
+# Training parameters
+total_timesteps: 2000000   # Increased training steps for better learning
+learning_rate: 0.0001      # Lower learning rate for stability
+buffer_size: 25000         # Minimal buffer size for memory efficiency
+batch_size: 32            # Smaller batch size for better generalization
+exploration_fraction: 0.1  # Longer exploration period
+exploration_final_eps: 0.01  # Lower final exploration rate
+target_update_interval: 1000  # More frequent target updates
+frame_stack: 3            # Reduced frame stack for memory efficiency
+
+# Environment settings
+env_id: "ALE/SpaceInvaders-v5"
+frame_skip: 4             # Number of frames to skip
+noop_max: 30             # Max random no-ops at start
+fire_reset: true         # Fire action on reset (game-specific)
+
+# Model architecture
+policy: "CnnPolicy"       # Policy network type
+features_extractor: "NatureCNN"  # CNN architecture
+features_dim: 256        # Reduced feature dimension for memory
+double_q: true          # Use double Q-learning for stability
+dueling: true           # Use dueling network architecture
+
+# Preprocessing
+normalize_images: true    # Normalize pixel values
+grayscale: true          # Convert to grayscale
+resize_shape: [84, 84]   # Input image size
+clip_rewards: true       # Clip rewards to [-1, 1]
+
+# Training optimizations
+gradient_steps: 1        # Number of gradient steps per update
+train_freq: 4           # Update the model every 4 steps
+learning_starts: 5000    # Reduced learning start to match buffer size
+gamma: 0.99             # Discount factor
+max_grad_norm: 10       # Clip gradients for stability
+
+# Evaluation settings
+eval_episodes: 100       # Episodes for evaluation
+eval_deterministic: true # Use deterministic actions
+render_eval: false      # Render during evaluation
+
+# Logging
+tensorboard_log: true    # Enable TensorBoard logging
+save_freq: 100000       # Save frequency in timesteps
+log_interval: 1000      # Logging interval in timesteps 

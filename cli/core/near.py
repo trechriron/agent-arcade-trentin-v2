@@ -7,6 +7,9 @@ from decimal import Decimal
 from py_near.account import Account
 from py_near.providers import JsonProvider
 from py_near.dapps.core import NEAR
+from pathlib import Path
+from loguru import logger
+from pydantic import BaseModel
 
 @dataclass
 class StakeInfo:
@@ -25,101 +28,242 @@ class LeaderboardEntry:
     highest_reward_multiplier: int
     last_played: int
 
-class NEARWallet:
-    def __init__(self, network: str = "testnet"):
-        self.network = network
-        self.account_id: Optional[str] = None
-        self.account: Optional[Account] = None
-        self.rpc_addr = "https://rpc.testnet.near.org" if network == "testnet" else "https://rpc.mainnet.near.org"
-        self.near_credentials_dir = os.path.expanduser('~/.near-credentials')
-        
-    def _get_credentials_from_near_cli(self, account_id: str) -> Optional[str]:
-        """Get credentials from NEAR CLI credentials directory"""
-        creds_path = os.path.join(self.near_credentials_dir, self.network, f"{account_id}.json")
-        if os.path.exists(creds_path):
-            with open(creds_path, 'r') as f:
-                creds = json.load(f)
-                return creds.get('private_key')
-        return None
-        
-    async def login_with_cli(self, account_id: Optional[str] = None) -> Tuple[bool, str]:
-        """Login using NEAR CLI"""
-        try:
-            # Check if NEAR CLI is installed
-            try:
-                subprocess.run(['near', '--version'], capture_output=True, check=True)
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                return False, "NEAR CLI not found. Please install it with: npm install -g near-cli"
+class WalletConfig(BaseModel):
+    """NEAR wallet configuration."""
+    network: str = "testnet"
+    account_id: Optional[str] = None
+    node_url: str = "https://rpc.testnet.near.org"
 
-            # If account_id provided, try to use existing credentials
-            if account_id:
-                private_key = self._get_credentials_from_near_cli(account_id)
-                if private_key:
-                    success = await self.login(private_key)
-                    if success:
-                        self.account_id = account_id
-                        return True, f"Successfully logged in as {account_id}!"
-            
-            # Start web wallet login process
-            print("\nStarting NEAR web wallet login...")
-            print("Please complete the authentication in your browser.")
-            print("After authenticating, the credentials will be saved automatically.\n")
-            
-            cmd = ['near', 'login']
-            if self.network != "testnet":
-                cmd.extend(['--networkId', self.network])
-                
-            process = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if process.returncode != 0:
-                error_msg = process.stderr or process.stdout
-                return False, f"NEAR CLI login failed: {error_msg}"
-                
-            # After web login, user needs to provide their account ID if not already provided
-            if not account_id:
-                return False, "Please provide your NEAR account ID to complete login"
-                
-            # Get credentials for the account
-            private_key = self._get_credentials_from_near_cli(account_id)
-            if not private_key:
-                return False, "Could not find credentials after login. Please try again or check your account ID."
-                
-            success = await self.login(private_key)
-            if success:
-                self.account_id = account_id
-                return True, f"Successfully logged in as {account_id}!"
-            return False, "Failed to initialize account with credentials"
-            
-        except Exception as e:
-            return False, f"Login failed: {str(e)}"
-            
-    async def login(self, private_key: str) -> bool:
-        """Handle NEAR wallet login using private key"""
+class StakeRecord(BaseModel):
+    """Record of a stake placed on an agent."""
+    game: str
+    model_path: str
+    amount: float
+    target_score: float
+    status: str = "pending"  # pending, completed, claimed
+    transaction_hash: Optional[str] = None
+    achieved_score: Optional[float] = None
+    reward_multiplier: Optional[float] = None
+
+class NEARWallet:
+    """NEAR wallet integration with local state management."""
+    
+    def __init__(self, network: str = "testnet"):
+        """Initialize NEAR wallet integration.
+        
+        Args:
+            network: NEAR network to use (testnet/mainnet)
+        """
+        self.config = WalletConfig(network=network)
+        self.config_dir = self._get_config_dir()
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self._load_config()
+    
+    def _get_config_dir(self) -> Path:
+        """Get platform-specific config directory."""
+        if os.name == 'nt':  # Windows
+            return Path(os.getenv('APPDATA')) / 'agent-arcade'
+        elif os.name == 'darwin':  # macOS
+            return Path.home() / 'Library' / 'Application Support' / 'agent-arcade'
+        else:  # Linux and others
+            return Path.home() / '.config' / 'agent-arcade'
+    
+    def _load_config(self) -> None:
+        """Load wallet configuration from disk."""
+        config_path = self.config_dir / 'wallet_config.json'
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    data = json.load(f)
+                self.config = WalletConfig(**data)
+            except Exception as e:
+                logger.error(f"Failed to load wallet config: {e}")
+    
+    def _save_config(self) -> None:
+        """Save wallet configuration to disk."""
+        config_path = self.config_dir / 'wallet_config.json'
         try:
-            self.account = Account(
-                account_id=self.account_id,
-                private_key=private_key,
-                rpc_addr=self.rpc_addr
-            )
-            await self.account.startup()
-            self.account_id = self.account.account_id
-            return True
+            with open(config_path, 'w') as f:
+                json.dump(self.config.dict(), f, indent=2)
         except Exception as e:
-            print(f"Login failed: {e}")
-            return False
+            logger.error(f"Failed to save wallet config: {e}")
+    
+    def login_with_cli(self, account_id: Optional[str] = None) -> bool:
+        """Login to NEAR wallet using NEAR CLI.
+        
+        Args:
+            account_id: Optional specific account ID to use
             
-    async def get_balance(self) -> Decimal:
-        """Get wallet balance in NEAR"""
-        if not self.account:
-            raise ValueError("Not logged in")
-        balance = await self.account.get_balance()
-        return Decimal(str(balance)) / NEAR
+        Returns:
+            True if login successful
+        """
+        try:
+            cmd = ['near', 'login']
+            if account_id:
+                cmd.extend(['--accountId', account_id])
+            if self.config.network != "mainnet":
+                cmd.extend(['--networkId', self.config.network])
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                # Update config with account ID if provided
+                if account_id:
+                    self.config.account_id = account_id
+                    self._save_config()
+                return True
+            else:
+                logger.error(f"Login failed: {result.stderr}")
+                return False
+        except Exception as e:
+            logger.error(f"Login failed: {e}")
+            return False
+    
+    def is_logged_in(self) -> bool:
+        """Check if wallet is logged in."""
+        try:
+            cmd = ['near', 'state', self.config.account_id or '']
+            if self.config.network != "mainnet":
+                cmd.extend(['--networkId', self.config.network])
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            return result.returncode == 0
+        except Exception:
+            return False
+    
+    def get_balance(self) -> Optional[float]:
+        """Get NEAR balance for current account."""
+        if not self.config.account_id:
+            return None
+        
+        try:
+            cmd = ['near', 'view-account', self.config.account_id]
+            if self.config.network != "mainnet":
+                cmd.extend(['--networkId', self.config.network])
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                # Parse balance from output
+                for line in result.stdout.split('\n'):
+                    if 'amount' in line:
+                        amount = float(line.split(':')[1].strip().replace("'", ""))
+                        return amount / 1e24  # Convert from yoctoNEAR to NEAR
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get balance: {e}")
+            return None
+    
+    def record_stake(self, stake: StakeRecord) -> None:
+        """Record a stake in local storage.
+        
+        Args:
+            stake: Stake record to save
+        """
+        stakes_dir = self.config_dir / 'stakes'
+        stakes_dir.mkdir(exist_ok=True)
+        
+        # Save stake record
+        stake_path = stakes_dir / f"{stake.transaction_hash or 'pending'}.json"
+        with open(stake_path, 'w') as f:
+            json.dump(stake.dict(), f, indent=2)
+    
+    def get_stakes(self, game: Optional[str] = None) -> list[StakeRecord]:
+        """Get all recorded stakes.
+        
+        Args:
+            game: Optional game to filter by
+            
+        Returns:
+            List of stake records
+        """
+        stakes_dir = self.config_dir / 'stakes'
+        if not stakes_dir.exists():
+            return []
+        
+        stakes = []
+        for stake_file in stakes_dir.glob('*.json'):
+            try:
+                with open(stake_file) as f:
+                    data = json.load(f)
+                    stake = StakeRecord(**data)
+                    if game is None or stake.game == game:
+                        stakes.append(stake)
+            except Exception as e:
+                logger.error(f"Failed to load stake {stake_file}: {e}")
+        
+        return sorted(stakes, key=lambda s: s.transaction_hash or '')
 
 class NEARContract:
     def __init__(self, contract_id: str, wallet: NEARWallet):
         self.contract_id = contract_id
         self.wallet = wallet
         
+    async def initialize_contract(self):
+        """Initialize contract connection"""
+        if not self.wallet.account:
+            raise ValueError("Wallet not logged in")
+        
+        try:
+            # Connect to contract
+            self.contract = await self.wallet.account.load_contract(
+                self.contract_id,
+                {
+                    'viewMethods': ['get_leaderboard', 'get_pool_stats'],
+                    'changeMethods': ['place_stake', 'evaluate_stake']
+                }
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Contract initialization failed: {e}")
+            return False
+            
+    async def place_stake(self, game: str, model_path: str, amount: float, target_score: float) -> bool:
+        """Place a stake on agent performance"""
+        if not self.wallet.account:
+            raise ValueError("Wallet not logged in")
+            
+        try:
+            # Convert NEAR to yoctoNEAR
+            amount_yocto = int(amount * 1e24)
+            
+            # Call contract method
+            result = await self.wallet.account.function_call(
+                self.contract_id,
+                "place_stake",
+                {
+                    "game": game,
+                    "target_score": target_score,
+                    "model_path": str(model_path)
+                },
+                amount_yocto
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Stake placement failed: {e}")
+            return False
+            
+    async def evaluate_stake(self, stake_id: str, achieved_score: float) -> Optional[float]:
+        """Evaluate a stake and claim rewards if successful"""
+        if not self.wallet.account:
+            raise ValueError("Wallet not logged in")
+            
+        try:
+            result = await self.wallet.account.function_call(
+                self.contract_id,
+                "evaluate_stake",
+                {
+                    "stake_id": stake_id,
+                    "achieved_score": achieved_score
+                }
+            )
+            
+            # Parse reward amount from result
+            reward = float(result) / 1e24  # Convert from yoctoNEAR to NEAR
+            return reward
+        except Exception as e:
+            logger.error(f"Stake evaluation failed: {e}")
+            return None
+
     async def stake(self, amount: Decimal, target_score: int) -> bool:
         """Stake NEAR tokens with a target score"""
         if not self.wallet.account:

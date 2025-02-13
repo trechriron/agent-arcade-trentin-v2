@@ -1,0 +1,43 @@
+# Pong Training Configuration
+
+# Training parameters
+total_timesteps: 2000000   # Increased training steps for better learning
+learning_rate: 0.0001      # Slightly lower learning rate for stability
+buffer_size: 100000        # Increased buffer size while keeping memory in check
+batch_size: 32            # Smaller batch size for better generalization
+exploration_fraction: 0.1  # Longer exploration period
+exploration_final_eps: 0.01  # Lower final exploration rate
+target_update_interval: 1000  # More frequent target updates
+frame_stack: 4            # Number of frames to stack
+
+# Environment settings
+env_id: "ALE/Pong-v5"
+frame_skip: 4             # Number of frames to skip
+noop_max: 30             # Max random no-ops at start
+
+# Model architecture
+policy: "CnnPolicy"       # Policy network type
+features_extractor: "NatureCNN"  # CNN architecture
+features_dim: 512        # Feature dimension
+
+# Preprocessing
+normalize_images: true    # Normalize pixel values
+grayscale: true          # Convert to grayscale
+resize_shape: [84, 84]   # Input image size
+
+# Training optimizations
+gradient_steps: 1        # Number of gradient steps per update
+train_freq: 4           # Update the model every 4 steps
+learning_starts: 20000   # Start learning after more steps
+gamma: 0.99             # Discount factor
+max_grad_norm: 10       # Clip gradients for stability
+
+# Evaluation settings
+eval_episodes: 100       # Episodes for evaluation
+eval_deterministic: true # Use deterministic actions
+render_eval: false      # Render during evaluation
+
+# Logging
+tensorboard_log: true    # Enable TensorBoard logging
+save_freq: 100000       # Save frequency in timesteps
+log_interval: 1000      # Logging interval in timesteps 

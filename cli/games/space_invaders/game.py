@@ -15,6 +15,7 @@ from loguru import logger
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult
 from cli.core.near import NEARWallet
+from cli.core.stake import StakeRecord
 
 class SpaceInvadersGame(GameInterface):
     """Space Invaders game implementation."""
@@ -33,8 +34,9 @@ class SpaceInvadersGame(GameInterface):
     
     def _make_env(self, render: bool = False) -> gym.Env:
         """Create the Space Invaders environment with proper wrappers."""
+        # Use human rendering if requested, otherwise rgb_array
         render_mode = "human" if render else "rgb_array"
-        env = gym.make("ALE/SpaceInvaders-v5", render_mode=render_mode, frameskip=1)
+        env = gym.make("ALE/SpaceInvaders-v5", render_mode=render_mode, frameskip=4)
         
         # Add standard Atari wrappers
         env = NoopResetEnv(env, noop_max=30)
@@ -42,11 +44,20 @@ class SpaceInvadersGame(GameInterface):
         env = EpisodicLifeEnv(env)
         if "FIRE" in env.unwrapped.get_action_meanings():
             env = FireResetEnv(env)
+        env = ClipRewardEnv(env)  # Clip rewards for stability
         
-        # Observation preprocessing
+        # Memory-efficient preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayScaleObservation(env)
-        env = gym.wrappers.FrameStack(env, 4)
+        env = gym.wrappers.FrameStack(env, 3)  # Reduced frame stack
+        
+        # Add video recording wrapper if using rgb_array rendering
+        if not render:
+            env = gym.wrappers.RecordVideo(
+                env,
+                "videos/training",
+                episode_trigger=lambda x: x % 100 == 0  # Record every 100th episode
+            )
         
         return env
     
@@ -124,14 +135,14 @@ class SpaceInvadersGame(GameInterface):
     def get_default_config(self) -> GameConfig:
         """Get default Space Invaders configuration."""
         return GameConfig(
-            total_timesteps=2000000,  # Space Invaders needs more training
-            learning_rate=0.0001,     # Lower learning rate for stability
-            buffer_size=500000,       # Larger buffer for more experience
-            learning_starts=100000,
-            batch_size=128,
+            total_timesteps=2000000,
+            learning_rate=0.0001,
+            buffer_size=25000,
+            learning_starts=5000,
+            batch_size=32,
             exploration_fraction=0.1,
             target_update_interval=1000,
-            frame_stack=4
+            frame_stack=3
         )
     
     def get_score_range(self) -> Tuple[float, float]:
@@ -150,8 +161,28 @@ class SpaceInvadersGame(GameInterface):
     
     def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
         """Stake NEAR on Space Invaders performance."""
-        # This will be implemented in Phase 3
-        pass
+        if not wallet.is_logged_in():
+            raise ValueError("Must be logged in to stake")
+        
+        if not self.validate_model(model_path):
+            raise ValueError("Invalid model file")
+        
+        # Verify target score is within range
+        min_score, max_score = self.get_score_range()
+        if not min_score <= target_score <= max_score:
+            raise ValueError(f"Target score must be between {min_score} and {max_score}")
+        
+        # Create stake record
+        stake_record = StakeRecord(
+            game=self.name,
+            model_path=str(model_path),
+            amount=amount,
+            target_score=target_score
+        )
+        
+        # Record stake
+        wallet.record_stake(stake_record)
+        logger.info(f"Successfully staked {amount} NEAR on achieving score {target_score}")
 
 def register():
     """Register the Space Invaders game."""

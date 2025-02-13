@@ -1,7 +1,7 @@
 """Game loading and management for Agent Arcade."""
 from pathlib import Path
 from importlib import import_module
-from typing import Dict, Type, List
+from typing import Dict, Type, List, Optional
 from loguru import logger
 
 from .base import GameInterface, GameConfig
@@ -39,6 +39,21 @@ def get_game(name: str) -> GameInterface:
             f"Game '{name}' not found. Available games: {available}"
         )
     return GAMES[name]()
+
+def get_registered_games() -> Dict[str, Type[GameInterface]]:
+    """Get all registered games."""
+    return GAMES.copy()
+
+def get_game_info(name: str) -> Optional[Dict[str, str]]:
+    """Get information about a specific game."""
+    if name not in GAMES:
+        return None
+    game = GAMES[name]()
+    return {
+        "name": game.name,
+        "description": game.description,
+        "version": game.version
+    }
 
 def list_games() -> List[Dict[str, str]]:
     """List all available games with metadata.

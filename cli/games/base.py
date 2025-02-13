@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any, Tuple
 from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel
+from cli.core.near import NEARWallet
 
 class GameConfig(BaseModel):
     """Base configuration for game training."""
@@ -90,6 +91,18 @@ class GameInterface(ABC):
     @abstractmethod
     def validate_model(self, model_path: Path) -> bool:
         """Validate that a model file is valid for this game."""
+        pass
+    
+    @abstractmethod
+    def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
+        """Stake NEAR on agent performance.
+        
+        Args:
+            wallet: NEAR wallet instance
+            model_path: Path to the model to evaluate
+            amount: Amount of NEAR to stake
+            target_score: Target score to achieve
+        """
         pass
     
     def load_config(self, config_path: Optional[Path] = None) -> GameConfig:
