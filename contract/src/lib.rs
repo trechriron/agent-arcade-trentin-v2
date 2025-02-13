@@ -3,7 +3,6 @@ use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault, Promise, BorshStorageKey, NearToken};
 use near_sdk::json_types::U128;
-use near_sdk::schemars::{self, JsonSchema};
 
 pub type Balance = U128;
 
@@ -14,7 +13,7 @@ pub enum StorageKey {
     GameConfigs,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, JsonSchema)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct GameConfig {
     pub min_score: i32,
@@ -24,7 +23,7 @@ pub struct GameConfig {
     pub enabled: bool,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, JsonSchema)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct StakeInfo {
     pub game: String,
@@ -34,7 +33,7 @@ pub struct StakeInfo {
     pub games_played: u32,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, JsonSchema)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct LeaderboardEntry {
     pub account_id: AccountId,
@@ -137,7 +136,7 @@ impl AgentArcadeContract {
         let game_config = self.game_configs.get(&stake_info.game)
             .expect("Game config not found");
         
-        // Calculate reward
+        // Calculate reward using the stake's target_score
         let multiplier = self.get_reward_multiplier(
             &stake_info.game,
             achieved_score,
@@ -149,10 +148,16 @@ impl AgentArcadeContract {
             U128(0)
         };
 
-        // Update leaderboard
-        self.update_leaderboard(&account_id, &stake_info.game, achieved_score, reward);
+        // Update leaderboard with the correct target score
+        self.update_leaderboard(
+            &account_id, 
+            &stake_info.game, 
+            achieved_score, 
+            stake_info.target_score, 
+            reward
+        );
         
-        // Remove stake
+        // Remove stake record
         self.stakes.remove(&account_id);
 
         if reward.0 > 0 {
@@ -163,7 +168,14 @@ impl AgentArcadeContract {
         }
     }
 
-    fn update_leaderboard(&mut self, account_id: &AccountId, game: &String, score: i32, earned: Balance) {
+    fn update_leaderboard(
+        &mut self, 
+        account_id: &AccountId, 
+        game: &String, 
+        score: i32, 
+        target_score: i32, 
+        earned: Balance
+    ) {
         let mut entry = self.leaderboard.get(account_id).unwrap_or(LeaderboardEntry {
             account_id: account_id.clone(),
             game: game.to_string(),
@@ -188,8 +200,8 @@ impl AgentArcadeContract {
         entry.win_rate = ((entry.win_rate * (entry.games_played - 1) as f64) + wins as f64) 
             / entry.games_played as f64;
         
-        // Update highest reward multiplier
-        let current_multiplier = self.get_reward_multiplier(game, score, 0);
+        // Update highest reward multiplier using the correct target_score
+        let current_multiplier = self.get_reward_multiplier(game, score, target_score);
         entry.highest_reward_multiplier = std::cmp::max(
             entry.highest_reward_multiplier,
             current_multiplier
