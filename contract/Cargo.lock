@@ -13,7 +13,9 @@ name = "agent-arcade"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "near-abi",
  "near-sdk",
+ "schemars",
  "serde",
  "serde_json",
  "uint",
