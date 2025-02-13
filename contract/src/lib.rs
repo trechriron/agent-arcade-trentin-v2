@@ -1,7 +1,7 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
-use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault, Promise, BorshStorageKey};
+use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault, Promise, BorshStorageKey, NearToken};
 use near_sdk::json_types::U128;
 use near_sdk::schemars::{self, JsonSchema};
 
@@ -86,7 +86,7 @@ impl AgentArcadeContract {
     #[payable]
     pub fn place_stake(&mut self, game: String, target_score: i32) {
         let account_id = env::predecessor_account_id();
-        let stake_amount = U128(env::attached_deposit());
+        let stake_amount = U128(env::attached_deposit().as_yoctonear());
         
         // Get game config
         let game_config = self.game_configs.get(&game)
@@ -157,7 +157,7 @@ impl AgentArcadeContract {
 
         if reward.0 > 0 {
             self.pool_balance = U128(self.pool_balance.0 - reward.0);
-            Promise::new(account_id).transfer(reward.0)
+            Promise::new(account_id).transfer(NearToken::from_yoctonear(reward.0))
         } else {
             Promise::new(account_id)
         }
