@@ -1,16 +1,20 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
-use near_sdk::{env, near_bindgen, AccountId, Balance, PanicOnDefault, Promise, BorshStorageKey};
+use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault, Promise, BorshStorageKey};
+use near_sdk::json_types::U128;
+use near_sdk::schemars::JsonSchema;
+
+pub type Balance = U128;
 
 #[derive(BorshStorageKey, BorshSerialize)]
-enum StorageKey {
+pub enum StorageKey {
     Stakes,
     Leaderboard,
     GameConfigs,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "near_sdk::serde")]
 pub struct GameConfig {
     pub min_score: i32,
@@ -20,7 +24,7 @@ pub struct GameConfig {
     pub enabled: bool,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "near_sdk::serde")]
 pub struct StakeInfo {
     pub game: String,
@@ -30,7 +34,7 @@ pub struct StakeInfo {
     pub games_played: u32,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "near_sdk::serde")]
 pub struct LeaderboardEntry {
     pub account_id: AccountId,
@@ -59,7 +63,7 @@ impl AgentArcadeContract {
     pub fn new(owner_id: AccountId) -> Self {
         Self {
             owner_id,
-            pool_balance: 0,
+            pool_balance: U128(0),
             stakes: LookupMap::new(StorageKey::Stakes),
             leaderboard: UnorderedMap::new(StorageKey::Leaderboard),
             game_configs: UnorderedMap::new(StorageKey::GameConfigs),
@@ -82,7 +86,7 @@ impl AgentArcadeContract {
     #[payable]
     pub fn place_stake(&mut self, game: String, target_score: i32) {
         let account_id = env::predecessor_account_id();
-        let stake_amount = env::attached_deposit();
+        let stake_amount = U128(env::attached_deposit());
         
         // Get game config
         let game_config = self.game_configs.get(&game)
@@ -90,7 +94,7 @@ impl AgentArcadeContract {
         assert!(game_config.enabled, "Game is disabled");
         
         // Validate stake
-        assert!(stake_amount >= game_config.min_stake, "Stake amount too low");
+        assert!(stake_amount.0 >= game_config.min_stake.0, "Stake amount too low");
         assert!(
             target_score >= game_config.min_score && target_score <= game_config.max_score,
             "Invalid target score"
@@ -105,10 +109,10 @@ impl AgentArcadeContract {
             timestamp: env::block_timestamp(),
             games_played: 0,
         });
-        self.pool_balance += stake_amount;
+        self.pool_balance = U128(self.pool_balance.0 + stake_amount.0);
     }
 
-    pub fn get_reward_multiplier(&self, game: &str, achieved_score: i32, target_score: i32) -> u32 {
+    pub fn get_reward_multiplier(&self, game: &String, achieved_score: i32, target_score: i32) -> u32 {
         let config = self.game_configs.get(game).expect("Game not found");
         
         // Calculate multiplier based on achievement relative to target
@@ -140,9 +144,9 @@ impl AgentArcadeContract {
             stake_info.target_score
         );
         let reward = if multiplier > 0 {
-            stake_info.amount * multiplier as u128
+            U128(stake_info.amount.0 * multiplier as u128)
         } else {
-            0
+            U128(0)
         };
 
         // Update leaderboard
@@ -151,20 +155,20 @@ impl AgentArcadeContract {
         // Remove stake
         self.stakes.remove(&account_id);
 
-        if reward > 0 {
-            self.pool_balance -= reward;
-            Promise::new(account_id).transfer(reward)
+        if reward.0 > 0 {
+            self.pool_balance = U128(self.pool_balance.0 - reward.0);
+            Promise::new(account_id).transfer(reward.0)
         } else {
             Promise::new(account_id)
         }
     }
 
-    fn update_leaderboard(&mut self, account_id: &AccountId, game: &str, score: i32, earned: Balance) {
+    fn update_leaderboard(&mut self, account_id: &AccountId, game: &String, score: i32, earned: Balance) {
         let mut entry = self.leaderboard.get(account_id).unwrap_or(LeaderboardEntry {
             account_id: account_id.clone(),
             game: game.to_string(),
             best_score: score,
-            total_earned: 0,
+            total_earned: U128(0),
             games_played: 0,
             win_rate: 0.0,
             highest_reward_multiplier: 0,
@@ -173,7 +177,7 @@ impl AgentArcadeContract {
 
         // Update stats
         entry.best_score = std::cmp::max(entry.best_score, score);
-        entry.total_earned += earned;
+        entry.total_earned = U128(entry.total_earned.0 + earned.0);
         entry.games_played += 1;
         entry.last_played = env::block_timestamp();
         
