@@ -1,8 +1,8 @@
 [package]
 name = "agent-arcade"
 version = "0.1.0"
-authors = ["Agent Arcade Team"]
-edition = "2025"
+authors = ["NEAR Foundation"]
+edition = "2021"
 repository = "https://github.com/jbarnes850/agent-arcade"
 
 [lib]
