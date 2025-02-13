@@ -37,4 +37,5 @@ rpath = false
 codegen_units = 1
 panic = "abort"
 image = "stable"
-image_digest = "sha256:71f0c0d2f062c3fd5b6236686ecbec128af8ccd9b20e1472f0d795b961b1a1e5" 
+image_digest = "sha256:71f0c0d2f062c3fd5b6236686ecbec128af8ccd9b20e1472f0d795b961b1a1e5"
+container_build_command = ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"] 
