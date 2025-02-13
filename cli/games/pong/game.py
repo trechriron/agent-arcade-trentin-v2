@@ -4,6 +4,13 @@ from pathlib import Path
 from typing import Optional, Tuple
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
+from stable_baselines3.common.atari_wrappers import (
+    NoopResetEnv,
+    MaxAndSkipEnv,
+    EpisodicLifeEnv,
+    FireResetEnv,
+    ClipRewardEnv
+)
 from loguru import logger
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult
@@ -27,11 +34,28 @@ class PongGame(GameInterface):
     
     def _make_env(self, render: bool = False) -> gym.Env:
         """Create the Pong environment with proper wrappers."""
+        # Use human rendering if requested, otherwise rgb_array
         render_mode = "human" if render else "rgb_array"
-        env = gym.make("ALE/Pong-v5", render_mode=render_mode)
+        env = gym.make("ALE/Pong-v5", render_mode=render_mode, frameskip=4)
+        
+        # Add standard Atari wrappers
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        
+        # Observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayScaleObservation(env)
         env = gym.wrappers.FrameStack(env, 4)
+        
+        # Add video recording wrapper if using rgb_array rendering
+        if not render:
+            env = gym.wrappers.RecordVideo(
+                env,
+                "videos/training",
+                episode_trigger=lambda x: x % 100 == 0  # Record every 100th episode
+            )
+        
         return env
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:

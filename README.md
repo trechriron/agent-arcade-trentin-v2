@@ -44,8 +44,11 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- Node.js and npm (for NEAR CLI)
+- **Python**: Version 3.8 - 3.12 (3.13 not yet supported)
+- **Operating System**: Linux, macOS, or WSL2 on Windows
+- **Node.js & npm**: Required for NEAR CLI (v14 or higher)
+- **Storage**: At least 2GB free space
+- **Memory**: At least 4GB RAM recommended
 
 ### Installation
 

@@ -15,17 +15,17 @@ wallet = NEARWallet()
 leaderboard_manager = LeaderboardManager()
 
 @click.group()
-@click.version_option()
+@click.version_option(package_name="agent-arcade")
 def cli():
     """Agent Arcade CLI for training and evaluating RL agents."""
     pass
 
 @cli.group()
-def wallet():
+def wallet_cmd():
     """Manage NEAR wallet."""
     pass
 
-@wallet.command()
+@wallet_cmd.command()
 @click.option('--network', default='testnet', help='NEAR network to use')
 @click.option('--account-id', help='Optional specific account ID')
 def login(network: str, account_id: Optional[str]):
@@ -38,19 +38,22 @@ def login(network: str, account_id: Optional[str]):
     except Exception as e:
         logger.error(f"Login failed: {e}")
 
-@wallet.command()
+@wallet_cmd.command()
 def logout():
     """Log out from NEAR wallet."""
     wallet.logout()
     logger.info("Successfully logged out")
 
-@wallet.command()
+@wallet_cmd.command()
 def status():
     """Check wallet login status."""
     if wallet.is_logged_in():
-        logger.info(f"Logged in as {wallet.account_id} on {wallet.network}")
+        logger.info(f"Logged in as {wallet.config.account_id} on {wallet.config.network}")
         balance = wallet.get_balance()
-        logger.info(f"Balance: {balance} NEAR")
+        if balance is not None:
+            logger.info(f"Balance: {balance} NEAR")
+        else:
+            logger.error("Failed to fetch balance")
     else:
         logger.info("Not logged in")
 
@@ -333,6 +336,25 @@ def list():
             f"{stake.status:<15}"
             f"{score:<10}"
         )
+
+@cli.command()
+@click.argument('game')
+@click.option('--render/--no-render', default=False, help='Render training environment')
+@click.option('--config', type=click.Path(exists=True), help='Path to configuration file')
+def train(game: str, render: bool, config: Optional[str]):
+    """Train an agent for a specific game."""
+    games = get_registered_games()
+    if game not in games:
+        logger.error(f"Game {game} not found")
+        return
+    
+    game_instance = games[game]()
+    try:
+        config_path = Path(config) if config else None
+        model_path = game_instance.train(render=render, config_path=config_path)
+        logger.info(f"Training complete! Model saved to: {model_path}")
+    except Exception as e:
+        logger.error(f"Training failed: {e}")
 
 if __name__ == "__main__":
     cli() 

@@ -1,4 +1,5 @@
 """Local leaderboard management for Agent Arcade."""
+import os
 import json
 import time
 from pathlib import Path

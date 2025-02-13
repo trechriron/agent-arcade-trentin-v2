@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any, Tuple
 from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel
+from cli.core.near import NEARWallet
 
 class GameConfig(BaseModel):
     """Base configuration for game training."""

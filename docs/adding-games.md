@@ -2,10 +2,50 @@
 
 This guide walks you through the process of adding a new Atari Learning Environment (ALE) game to Agent Arcade.
 
+## Prerequisites
+
+1. **Install Agent Arcade**
+```bash
+# Clone the repository
+git clone https://github.com/jbarnes850/agent-arcade.git
+cd agent-arcade
+
+# Run installation script
+./install.sh
+```
+
+The installation script will:
+- Set up a Python virtual environment
+- Install all required dependencies
+- Configure ALE and Atari ROMs
+- Set up NEAR CLI integration
+
+2. **Verify Installation**
+```bash
+# Activate virtual environment (if not already active)
+source drl-env/bin/activate
+
+# Verify CLI works
+agent-arcade --version
+```
+
 ## Quick Start Template
 
-Use this template to quickly add a new game:
+We provide two ways to add a new game:
 
+### Option 1: Using the Automation Script (Recommended)
+```bash
+# Activate virtual environment if not already active
+source drl-env/bin/activate
+
+# Add a new game (example: Breakout)
+python scripts/add_game.py "Breakout" "ALE/Breakout-v5" "Classic brick-breaking arcade game" \
+    --min-score 0 \
+    --max-score 864 \
+    --success-threshold 100
+```
+
+### Option 2: Manual Setup
 ```bash
 # 1. Create new game directory
 mkdir -p cli/games/your_game_name
@@ -275,46 +315,90 @@ log_interval: 1000      # Logging interval in timesteps
 
 ## Testing Your Implementation
 
-1. **Validate Registration**:
+1. **Verify Environment**:
+```bash
+# Activate virtual environment if not already active
+source drl-env/bin/activate
 
+# Test environment creation
+python3 -c "import gymnasium; env = gymnasium.make('ALE/YourGame-v5')"
+```
+
+2. **Verify Game Registration**:
 ```bash
 agent-arcade list-games  # Your game should appear
 ```
 
-2. **Test Training**:
-
+3. **Test Training**:
 ```bash
 agent-arcade train your-game-name --render
 ```
 
-3. **Test Evaluation**:
-
+4. **Test Evaluation**:
 ```bash
 agent-arcade evaluate your-game-name --model models/your_game_name_final.zip
 ```
 
-4. **Test Staking**:
+## Troubleshooting
 
+### Common Issues
+
+1. **Environment Not Found**
 ```bash
-agent-arcade stake your-game-name --model models/your_game_name_final.zip --amount 10 --target-score TARGET
+# Verify ALE installation
+python3 -c "from ale_py import ALEInterface; ALEInterface()"
+
+# Check ROM installation
+ls -l $HOME/.local/lib/python*/site-packages/ale_py/roms/
 ```
 
-## Common Issues & Solutions
+2. **ROM Installation Issues**
+```bash
+# Manual ROM installation
+ROMS_DIR="$HOME/.local/lib/python*/site-packages/ale_py/roms"
+wget https://github.com/openai/atari-py/raw/master/atari_py/atari_roms/your_game.bin -P "$ROMS_DIR"
+chmod 644 "$ROMS_DIR/your_game.bin"
+```
 
-1. **Environment Not Found**:
-   - Ensure the game is available in ALE
-   - Check environment ID spelling
-   - Verify Gymnasium installation
+3. **Python Version Issues**
+```bash
+# Check Python version
+python3 --version  # Should be between 3.8 and 3.12
+```
 
-2. **Training Issues**:
-   - Adjust learning rate if training is unstable
-   - Increase buffer size for complex games
-   - Modify frame stack for temporal dependencies
+4. **Import Errors**
+```bash
+# Check if all dependencies are installed
+pip list | grep -E "gymnasium|stable-baselines3|ale-py"
 
-3. **Performance Issues**:
-   - Add game-specific wrappers
-   - Tune reward scaling
-   - Adjust success threshold
+# Reinstall dependencies in correct order
+pip install "gymnasium[atari]==0.28.1"
+pip install "stable-baselines3==2.0.0"
+pip install "ale-py==0.8.1"
+```
+
+5. **Training Issues**
+```bash
+# Check CUDA availability (if using GPU)
+python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+
+# Monitor system resources
+top  # Check CPU/memory usage
+nvidia-smi  # Check GPU usage (if applicable)
+
+# Enable verbose logging
+export PYTHONPATH=.
+python3 -m cli.games.your_game_name.game --verbose
+```
+
+6. **Evaluation Errors**
+```bash
+# Test environment rendering
+python3 -c "import gymnasium as gym; env = gym.make('ALE/YourGame-v5', render_mode='human')"
+
+# Check model loading
+python3 -c "from stable_baselines3 import DQN; DQN.load('path/to/model.zip')"
+```
 
 ## Best Practices
 
@@ -341,3 +425,188 @@ See implementations of:
 - `cli/games/space_invaders/`
 
 For reference on structure and best practices.
+
+## Advanced Topics
+
+### 1. Custom Environment Wrappers
+
+For games requiring special handling:
+
+```python
+class CustomRewardWrapper(gym.Wrapper):
+    """Example custom reward wrapper."""
+    
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        # Modify reward based on game-specific logic
+        modified_reward = self._calculate_reward(reward, info)
+        return obs, modified_reward, terminated, truncated, info
+    
+    def _calculate_reward(self, reward, info):
+        # Implement custom reward logic
+        return reward
+
+# Use in _make_env
+env = CustomRewardWrapper(env)
+```
+
+### 2. Advanced Training Configuration
+
+For complex games needing special treatment:
+
+```yaml
+# Advanced configuration options
+advanced_training:
+  # Prioritized Experience Replay
+  prioritized_replay: true
+  alpha: 0.6
+  beta0: 0.4
+  
+  # N-step Learning
+  n_step: 3
+  
+  # Dueling Network
+  dueling: true
+  
+  # Double Q-Learning
+  double_q: true
+  
+  # Gradient Clipping
+  max_grad_norm: 10
+```
+
+### 3. Custom Feature Extraction
+
+For games with unique visual patterns:
+
+```python
+import torch.nn as nn
+
+class CustomCNN(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 512):
+        super().__init__(observation_space, features_dim)
+        n_input_channels = observation_space.shape[0]
+        
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(
+                torch.as_tensor(observation_space.sample()[None]).float()
+            ).shape[1]
+        
+        self.linear = nn.Sequential(
+            nn.Linear(n_flatten, features_dim),
+            nn.ReLU()
+        )
+    
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.cnn(observations))
+
+# Use in training
+policy_kwargs = dict(
+    features_extractor_class=CustomCNN,
+    features_extractor_kwargs=dict(features_dim=512)
+)
+```
+
+### 4. Performance Optimization
+
+Tips for improving training efficiency:
+
+1. **Memory Management**:
+```python
+# Clear GPU memory between training runs
+import torch
+torch.cuda.empty_cache()
+
+# Monitor memory usage
+from pynvml import *
+nvmlInit()
+handle = nvmlDeviceGetHandleByIndex(0)
+info = nvmlDeviceGetMemoryInfo(handle)
+print(f"Free memory: {info.free/1024**2:.2f}MB")
+```
+
+2. **Vectorized Environments**:
+```python
+# Use multiple environments for parallel training
+n_envs = 4  # Number of parallel environments
+env = SubprocVecEnv([lambda: make_env() for _ in range(n_envs)])
+```
+
+3. **Frame Skipping**:
+```python
+# Implement efficient frame skipping
+env = MaxAndSkipEnv(env, skip=4)  # Process every 4th frame
+```
+
+### 5. Testing Framework
+
+Example test suite structure:
+
+```python
+# tests/games/test_your_game.py
+import pytest
+from cli.games.your_game_name.game import YourGameNameGame
+
+def test_environment_creation():
+    game = YourGameNameGame()
+    env = game._make_env(render=False)
+    assert env is not None
+    env.close()
+
+def test_model_training():
+    game = YourGameNameGame()
+    model_path = game.train(render=False, total_timesteps=1000)
+    assert model_path.exists()
+
+def test_evaluation():
+    game = YourGameNameGame()
+    model_path = Path("models/test_model.zip")
+    result = game.evaluate(model_path, episodes=2)
+    assert result.episodes == 2
+```
+
+## Contributing Guidelines
+
+1. **Code Style**:
+   - Follow PEP 8 guidelines
+   - Use type hints
+   - Document all public methods
+   - Add meaningful comments
+
+2. **Testing Requirements**:
+   - Unit tests for core functionality
+   - Integration tests for training/evaluation
+   - Performance benchmarks
+   - Documentation updates
+
+3. **Pull Request Process**:
+   - Create feature branch
+   - Add tests
+   - Update documentation
+   - Submit PR with description
+
+## Support
+
+For additional help:
+
+1. **Discord Community**: [Join our Discord](https://discord.gg/your-invite)
+2. **GitHub Issues**: [Report bugs](https://github.com/your-username/agent-arcade/issues)
+3. **Documentation**: [Read the docs](https://your-username.github.io/agent-arcade)
+
+## Resources
+
+- [Gymnasium Documentation](https://gymnasium.farama.org/)
+- [Stable-Baselines3 Guide](https://stable-baselines3.readthedocs.io/)
+- [NEAR Protocol Docs](https://docs.near.org/)
+- [Atari Learning Environment](https://github.com/mgbellemare/Arcade-Learning-Environment)

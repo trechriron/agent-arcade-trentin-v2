@@ -79,12 +79,25 @@ class NEARWallet:
                 # Extract account ID from successful login
                 for line in result.stdout.split('\n'):
                     if 'Logged in as' in line:
-                        logged_account = line.split('Logged in as')[1].strip()
-                        self.config.account_id = logged_account
-                        self._save_config()
-                        logger.info(f"Successfully logged in as {logged_account}")
-                        return True
-                return True
+                        # Parse account ID from: "Logged in as [ account.testnet ] with public key [ ed25519:... ]"
+                        start = line.find('[') + 2
+                        end = line.find(']') - 1
+                        if start > 0 and end > start:
+                            logged_account = line[start:end].strip()
+                            self.config.account_id = logged_account
+                            self._save_config()
+                            logger.info(f"Successfully logged in as {logged_account}")
+                            return True
+                
+                # If no account ID found in output but login succeeded
+                if account_id:
+                    self.config.account_id = account_id
+                    self._save_config()
+                    logger.info(f"Successfully logged in as {account_id}")
+                    return True
+                
+                logger.error("Could not determine account ID from login output")
+                return False
             else:
                 logger.error(f"Login failed: {result.stderr}")
                 return False

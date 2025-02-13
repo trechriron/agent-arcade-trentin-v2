@@ -3,14 +3,13 @@ from setuptools import setup, find_packages
 setup(
     name="agent-arcade",
     version="0.1.0",
-    packages=find_packages(include=['cli', 'cli.*']),
+    packages=find_packages(),
     include_package_data=True,
     install_requires=[
         "Click>=8.0",
         "stable-baselines3==2.0.0",
         "gymnasium[atari]==0.28.1",
         "ale-py==0.8.1",
-        "AutoROM[accept-rom-license]==0.6.1",
         "PyYAML==6.0.1",
         "wandb==0.15.0",
         "tensorboard==2.15.1",
