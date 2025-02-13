@@ -22,8 +22,17 @@ debug = false
 panic = "abort"
 overflow-checks = true
 
-[reproducible_build]
+[package.metadata.near.reproducible_build]
 # Reproducible build settings
-protocol_version = 1
 release = true
-strip = true 
+target = "wasm32-unknown-unknown"
+strip = true
+opt_level = "z"
+features = ["legacy", "abi"]
+debug = false
+lto = true
+debug_assertions = false
+overflow_checks = true
+rpath = false
+codegen_units = 1
+panic = "abort" 
