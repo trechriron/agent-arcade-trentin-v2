@@ -198,6 +198,72 @@ class NEARContract:
         self.contract_id = contract_id
         self.wallet = wallet
         
+    async def initialize_contract(self):
+        """Initialize contract connection"""
+        if not self.wallet.account:
+            raise ValueError("Wallet not logged in")
+        
+        try:
+            # Connect to contract
+            self.contract = await self.wallet.account.load_contract(
+                self.contract_id,
+                {
+                    'viewMethods': ['get_leaderboard', 'get_pool_stats'],
+                    'changeMethods': ['place_stake', 'evaluate_stake']
+                }
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Contract initialization failed: {e}")
+            return False
+            
+    async def place_stake(self, game: str, model_path: str, amount: float, target_score: float) -> bool:
+        """Place a stake on agent performance"""
+        if not self.wallet.account:
+            raise ValueError("Wallet not logged in")
+            
+        try:
+            # Convert NEAR to yoctoNEAR
+            amount_yocto = int(amount * 1e24)
+            
+            # Call contract method
+            result = await self.wallet.account.function_call(
+                self.contract_id,
+                "place_stake",
+                {
+                    "game": game,
+                    "target_score": target_score,
+                    "model_path": str(model_path)
+                },
+                amount_yocto
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Stake placement failed: {e}")
+            return False
+            
+    async def evaluate_stake(self, stake_id: str, achieved_score: float) -> Optional[float]:
+        """Evaluate a stake and claim rewards if successful"""
+        if not self.wallet.account:
+            raise ValueError("Wallet not logged in")
+            
+        try:
+            result = await self.wallet.account.function_call(
+                self.contract_id,
+                "evaluate_stake",
+                {
+                    "stake_id": stake_id,
+                    "achieved_score": achieved_score
+                }
+            )
+            
+            # Parse reward amount from result
+            reward = float(result) / 1e24  # Convert from yoctoNEAR to NEAR
+            return reward
+        except Exception as e:
+            logger.error(f"Stake evaluation failed: {e}")
+            return None
+
     async def stake(self, amount: Decimal, target_score: int) -> bool:
         """Stake NEAR tokens with a target score"""
         if not self.wallet.account:
