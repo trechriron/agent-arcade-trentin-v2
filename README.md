@@ -53,14 +53,45 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 ### Installation
 
 ```bash
-# One-line install (recommended)
-curl -sSL https://raw.githubusercontent.com/jbarnes850/agent-arcade/main/install.sh | bash
-
-# Or manual installation
+# Clone the repository
 git clone https://github.com/jbarnes850/agent-arcade.git
 cd agent-arcade
+
+# Run the installation script
 ./install.sh
 ```
+
+### Installation Troubleshooting
+
+If you encounter issues during installation:
+
+1. **Dependency Conflicts**
+
+   ```bash
+   # Clean existing installations
+   pip uninstall -y ale-py shimmy gymnasium
+   
+   # Install dependencies in correct order
+   pip install "ale-py==0.8.1"
+   pip install "shimmy[atari]==0.2.1"
+   pip install "gymnasium[atari]==0.28.1"
+   ```
+
+2. **ROM Installation Issues**
+
+   ```bash
+   # Verify ROM installation
+   python3 -c "import ale_py; print(ale_py.get_roms_path())"
+   ```
+
+3. **Python Version Issues**
+
+   ```bash
+   # Check Python version
+   python3 --version  # Should be between 3.8 and 3.12
+   ```
+
+For detailed troubleshooting steps, see [Installation Guide](docs/installation.md).
 
 ### Verify Installation
 

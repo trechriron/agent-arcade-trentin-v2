@@ -70,21 +70,30 @@ fi
 echo "📦 Upgrading pip..."
 python3 -m pip install --upgrade pip
 
-# Clean install - remove existing package if present
-pip uninstall -y agent-arcade || true
+# Clean install - remove existing packages if present
+echo "🧹 Cleaning existing installations..."
+pip uninstall -y agent-arcade ale-py shimmy gymnasium || true
 
-# Install core dependencies first
+# Install dependencies in correct order with error handling
 echo "📥 Installing core dependencies..."
-pip install "gymnasium[atari,other]==0.28.1" || {
-    echo "❌ Failed to install Gymnasium with Atari support."
-    exit 1
-}
 
-echo "📥 Installing ALE interface..."
-pip install "ale-py==0.8.1" || {
-    echo "❌ Failed to install ALE interface."
+echo "Installing ALE interface..."
+if ! pip install "ale-py==0.8.1"; then
+    echo "❌ Failed to install ALE interface. Please check your Python version and pip installation."
     exit 1
-}
+fi
+
+echo "Installing Shimmy..."
+if ! pip install "shimmy[atari]==0.2.1"; then
+    echo "❌ Failed to install Shimmy. This may indicate a conflict with ale-py."
+    exit 1
+fi
+
+echo "Installing Gymnasium..."
+if ! pip install "gymnasium[atari]==0.28.1"; then
+    echo "❌ Failed to install Gymnasium. This may indicate a conflict with Shimmy or ALE."
+    exit 1
+fi
 
 # Verify ALE interface
 echo "🎮 Verifying ALE interface..."
@@ -101,10 +110,10 @@ print(f'ALE interface version: {ale_py.__version__}')
 
 # Install AutoROM with license acceptance
 echo "🎲 Installing AutoROM..."
-pip install "AutoROM[accept-rom-license]==0.6.1" || {
+if ! pip install "AutoROM[accept-rom-license]==0.6.1"; then
     echo "❌ Failed to install AutoROM."
     exit 1
-}
+fi
 
 # Install Atari ROMs
 echo "🎲 Installing Atari ROMs..."
@@ -238,10 +247,10 @@ except Exception as e:
 
 # Install the agent-arcade package
 echo "📥 Installing Agent Arcade..."
-pip install -e . || {
+if ! pip install -e .; then
     echo "❌ Failed to install Agent Arcade package."
     exit 1
-}
+fi
 
 # Verify core dependencies
 echo "🔍 Verifying core dependencies..."
