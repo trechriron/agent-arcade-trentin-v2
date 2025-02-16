@@ -18,7 +18,7 @@ The installation script will:
 - Set up a Python virtual environment
 - Install all required dependencies
 - Configure ALE and Atari ROMs
-- Set up NEAR CLI integration
+- Set up NEAR CLI integration (optional)
 
 2. **Verify Installation**
 ```bash
@@ -57,6 +57,61 @@ touch cli/games/your_game_name/game.py
 # 3. Create configuration file
 touch configs/your_game_name.yaml
 ```
+
+## Environment Setup
+
+The environment setup is crucial for proper training. Here's the standard wrapper stack used in Agent Arcade:
+
+```python
+def _make_env(self, render: bool = False) -> gym.Env:
+    """Create the game environment with proper wrappers."""
+    render_mode = "human" if render else "rgb_array"
+    env = gym.make("[ENV_ID]", render_mode=render_mode, frameskip=4)
+    
+    # Add standard Atari wrappers
+    env = NoopResetEnv(env, noop_max=30)
+    env = MaxAndSkipEnv(env, skip=4)
+    env = EpisodicLifeEnv(env)
+    if "FIRE" in env.unwrapped.get_action_meanings():
+        env = FireResetEnv(env)
+    
+    # Observation preprocessing
+    env = gym.wrappers.ResizeObservation(env, (84, 84))
+    env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
+    env = gym.wrappers.FrameStackObservation(env, 4)
+    
+    # Add video recording wrapper if using rgb_array rendering
+    if not render:
+        env = gym.wrappers.RecordVideo(
+            env,
+            "videos/training",
+            episode_trigger=lambda x: x % 100 == 0  # Record every 100th episode
+        )
+    
+    return env
+```
+
+### Wrapper Explanation
+
+1. **Base Environment**:
+   - `frameskip=4`: Process every 4th frame for efficiency
+   - `render_mode`: "human" for visualization, "rgb_array" for training
+
+2. **Atari-specific Wrappers**:
+   - `NoopResetEnv`: Random number of no-ops at start
+   - `MaxAndSkipEnv`: Frame skipping and max pooling
+   - `EpisodicLifeEnv`: End episode on life loss
+   - `FireResetEnv`: Press FIRE to start games that require it
+
+3. **Observation Processing**:
+   - `ResizeObservation`: Resize to 84x84 pixels
+   - `GrayscaleObservation`: Convert to grayscale (keep_dim=False)
+   - `FrameStackObservation`: Stack 4 frames for temporal information
+
+4. **Recording** (during training):
+   - `RecordVideo`: Save episode videos for visualization
+
+The final observation shape will be `(4, 84, 84)` representing 4 stacked grayscale frames.
 
 ## Step-by-Step Guide
 
@@ -346,83 +401,109 @@ agent-arcade evaluate your-game-name --model models/your_game_name_final.zip
 1. **Environment Not Found**
 ```bash
 # Verify ALE installation
-python3 -c "from ale_py import ALEInterface; ALEInterface()"
+python3 -c "import ale_py; print(ale_py.__version__)"
 
 # Check ROM installation
-ls -l $HOME/.local/lib/python*/site-packages/ale_py/roms/
+python3 -c "import ale_py; from pathlib import Path; print(Path(ale_py.__file__).parent / 'roms')"
 ```
 
-2. **ROM Installation Issues**
-```bash
-# Manual ROM installation
-ROMS_DIR="$HOME/.local/lib/python*/site-packages/ale_py/roms"
-wget https://github.com/openai/atari-py/raw/master/atari_py/atari_roms/your_game.bin -P "$ROMS_DIR"
-chmod 644 "$ROMS_DIR/your_game.bin"
+2. **Observation Shape Issues**
+```python
+# Debug observation shape
+obs, _ = env.reset()
+print(f"Observation shape: {obs.shape}")  # Should be (4, 84, 84)
+
+# Common fixes:
+# 1. Ensure correct wrapper order
+env = gym.wrappers.ResizeObservation(env, (84, 84))
+env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)  # keep_dim=False is important
+env = gym.wrappers.FrameStackObservation(env, 4)  # Use FrameStackObservation, not FrameStack
+
+# 2. Check vectorized environment
+env = DummyVecEnv([lambda: env])
+env = VecFrameStack(env, 4)
 ```
 
-3. **Python Version Issues**
+3. **Package Version Issues**
 ```bash
-# Check Python version
-python3 --version  # Should be between 3.8 and 3.12
+# Required versions
+pip install "gymnasium[atari]>=0.29.1"
+pip install "ale-py>=0.10.2"
+pip install "shimmy[atari]>=2.0.0"
+pip install "stable-baselines3[extra]>=2.5.0"
+pip install "autorom>=0.6.1"
 ```
 
-4. **Import Errors**
+4. **ROM Installation Issues**
 ```bash
-# Check if all dependencies are installed
-pip list | grep -E "gymnasium|stable-baselines3|ale-py"
+# Verify ROM installation
+python3 -c "
+import ale_py
+from pathlib import Path
+rom_dir = Path(ale_py.__file__).parent / 'roms'
+print(f'ROM directory: {rom_dir}')
+print('Available ROMs:')
+for rom in sorted(rom_dir.glob('*.bin')):
+    print(f'  - {rom.name}')
+"
 
-# Reinstall dependencies in correct order
-pip install "gymnasium[atari]==0.28.1"
-pip install "stable-baselines3==2.0.0"
-pip install "ale-py==0.8.1"
+# Reinstall ROMs if needed
+python3 -m AutoROM --accept-license
 ```
 
 5. **Training Issues**
 ```bash
-# Check CUDA availability (if using GPU)
-python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+# Enable debug logging
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
-# Monitor system resources
-top  # Check CPU/memory usage
-nvidia-smi  # Check GPU usage (if applicable)
+# Monitor training progress
+tensorboard --logdir ./tensorboard
 
-# Enable verbose logging
-export PYTHONPATH=.
-python3 -m cli.games.your_game_name.game --verbose
-```
-
-6. **Evaluation Errors**
-```bash
-# Test environment rendering
-python3 -c "import gymnasium as gym; env = gym.make('ALE/YourGame-v5', render_mode='human')"
-
-# Check model loading
-python3 -c "from stable_baselines3 import DQN; DQN.load('path/to/model.zip')"
+# Check video recordings
+ls -l videos/training/
 ```
 
 ## Best Practices
 
-1. **Documentation**:
-   - Add clear game description
-   - Document any game-specific parameters
+1. **Environment Configuration**:
+   - Always use the standard wrapper stack
+   - Maintain the correct wrapper order
+   - Verify observation shapes before training
+   - Test environment with both render modes
+
+2. **Training Configuration**:
+   - Start with default hyperparameters
+   - Adjust based on game complexity
+   - Monitor training progress with TensorBoard
+   - Save checkpoints regularly
+
+3. **Testing**:
+   - Verify environment creation
+   - Test with and without rendering
+   - Check model saving/loading
+   - Validate observation shapes
+   - Test video recording
+
+4. **Documentation**:
+   - Document game-specific parameters
    - Include expected score ranges
+   - Note any special requirements
+   - Add example configurations
 
-2. **Testing**:
-   - Test all CLI commands
-   - Verify model saving/loading
-   - Check staking functionality
+## Resources
 
-3. **Configuration**:
-   - Start with default parameters
-   - Document any deviations
-   - Include game-specific settings
+- [Gymnasium Atari Documentation](https://gymnasium.farama.org/environments/atari/)
+- [ALE Documentation](https://ale.farama.org/environments/)
+- [Stable-Baselines3 Documentation](https://stable-baselines3.readthedocs.io/)
+- [Agent Arcade GitHub](https://github.com/jbarnes850/agent-arcade)
 
 ## Example Games
 
-See implementations of:
+See our reference implementations:
 
-- `cli/games/pong/`
-- `cli/games/space_invaders/`
+- `cli/games/pong/` - Simple game with basic dynamics
+- `cli/games/space_invaders/` - Complex game with multiple objects
 
 For reference on structure and best practices.
 
@@ -595,14 +676,6 @@ def test_evaluation():
    - Add tests
    - Update documentation
    - Submit PR with description
-
-## Support
-
-For additional help:
-
-1. **Discord Community**: [Join our Discord](https://discord.gg/your-invite)
-2. **GitHub Issues**: [Report bugs](https://github.com/your-username/agent-arcade/issues)
-3. **Documentation**: [Read the docs](https://your-username.github.io/agent-arcade)
 
 ## Resources
 

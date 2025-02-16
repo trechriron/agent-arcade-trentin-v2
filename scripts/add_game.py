@@ -44,7 +44,7 @@ class [CLASS_NAME](GameInterface):
     def _make_env(self, render: bool = False) -> gym.Env:
         """Create the game environment with proper wrappers."""
         render_mode = "human" if render else "rgb_array"
-        env = gym.make("[ENV_ID]", render_mode=render_mode, frameskip=1)
+        env = gym.make("[ENV_ID]", render_mode=render_mode, frameskip=4)
         
         # Add standard Atari wrappers
         env = NoopResetEnv(env, noop_max=30)
@@ -55,8 +55,16 @@ class [CLASS_NAME](GameInterface):
         
         # Observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayScaleObservation(env)
-        env = gym.wrappers.FrameStack(env, 4)
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
+        env = gym.wrappers.FrameStackObservation(env, 4)
+        
+        # Add video recording wrapper if using rgb_array rendering
+        if not render:
+            env = gym.wrappers.RecordVideo(
+                env,
+                "videos/training",
+                episode_trigger=lambda x: x % 100 == 0  # Record every 100th episode
+            )
         
         return env
     
