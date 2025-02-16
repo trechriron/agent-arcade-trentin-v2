@@ -1,7 +1,7 @@
 """Pong game implementation using ALE."""
 import gymnasium as gym
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 from stable_baselines3.common.atari_wrappers import (
@@ -14,8 +14,15 @@ from stable_baselines3.common.atari_wrappers import (
 from loguru import logger
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult
-from cli.core.near import NEARWallet
-from cli.core.stake import StakeRecord
+
+# Optional NEAR imports
+try:
+    from cli.core.near import NEARWallet
+    from cli.core.stake import StakeRecord
+    NEAR_AVAILABLE = True
+except ImportError:
+    NEAR_AVAILABLE = False
+    NEARWallet = Any  # Type alias for type hints
 
 class PongGame(GameInterface):
     """Pong game implementation."""
@@ -45,8 +52,8 @@ class PongGame(GameInterface):
         
         # Observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayScaleObservation(env)
-        env = gym.wrappers.FrameStack(env, 4)
+        env = gym.wrappers.GrayscaleObservation(env)
+        env = gym.wrappers.FrameStackObservation(env, 4)
         
         # Add video recording wrapper if using rgb_array rendering
         if not render:
@@ -158,6 +165,9 @@ class PongGame(GameInterface):
     
     def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
         """Stake NEAR on Pong performance."""
+        if not NEAR_AVAILABLE:
+            raise RuntimeError("NEAR integration not available")
+            
         if not wallet.is_logged_in():
             raise ValueError("Must be logged in to stake")
         

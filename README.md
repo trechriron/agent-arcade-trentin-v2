@@ -1,6 +1,6 @@
 # Agent Arcade: AI Game Agents on NEAR
 
-A platform for training and competing with AI agents in classic arcade games using Stable Baselines3, Gymnasium, and the Arcade Learning Environment with staking powered by NEAR.
+A platform for training and competing with AI agents in classic arcade games using Stable Baselines3, Gymnasium, and the Arcade Learning Environment with optional staking powered by NEAR.
 
 ## 🎬 Demo: Trained Agents in Action
 
@@ -44,11 +44,15 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 ### Prerequisites
 
+Core Requirements:
 - **Python**: Version 3.8 - 3.12 (3.13 not yet supported)
 - **Operating System**: Linux, macOS, or WSL2 on Windows
-- **Node.js & npm**: Required for NEAR CLI (v14 or higher)
 - **Storage**: At least 2GB free space
 - **Memory**: At least 4GB RAM recommended
+
+Optional Requirements (for staking):
+- **Node.js & npm**: Required for NEAR CLI (v14 or higher)
+- **NEAR Account**: Required for staking and competitions
 
 ### Installation
 
@@ -58,7 +62,11 @@ git clone https://github.com/jbarnes850/agent-arcade.git
 cd agent-arcade
 
 # Run the installation script
+chmod +x ./install.sh
 ./install.sh
+
+# Optional: Install NEAR integration for staking
+pip install -e ".[staking]"
 ```
 
 ### Installation Troubleshooting
@@ -204,9 +212,22 @@ frame_stack: 4
 3. Iterate on hyperparameters if needed
 4. Save best model for competition baseline
 
-## 💎 NEAR Integration
+## 💎 NEAR Integration (Optional)
 
-Train your agent, stake NEAR tokens on its performance, and compete for rewards!
+The NEAR integration allows you to stake tokens on your agent's performance and compete for rewards. This is an optional feature that can be installed with:
+
+```bash
+pip install -e ".[staking]"
+```
+
+### Prerequisites for NEAR Integration
+
+1. Install Node.js and npm from https://nodejs.org/
+2. Install NEAR CLI:
+   ```bash
+   npm install -g near-cli
+   ```
+3. Create a NEAR account at https://wallet.near.org/
 
 ### Staking System
 

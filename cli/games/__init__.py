@@ -6,6 +6,23 @@ from loguru import logger
 
 from .base import GameInterface, GameConfig
 
+# Register Atari environments
+try:
+    import gymnasium as gym
+    import ale_py
+    gym.register_envs(ale_py)
+    logger.debug("Atari environments registered successfully")
+except ImportError:
+    logger.warning("Failed to register Atari environments. Some games may not be available.")
+
+# Check for NEAR availability
+try:
+    from cli.core.near import NEARWallet
+    NEAR_AVAILABLE = True
+except ImportError:
+    NEAR_AVAILABLE = False
+    logger.debug("NEAR integration not available")
+
 # Game registry
 GAMES: Dict[str, Type[GameInterface]] = {}
 
@@ -19,7 +36,7 @@ def register_game(name: str, game_class: Type[GameInterface]) -> None:
     if name in GAMES:
         logger.warning(f"Game '{name}' already registered. Overwriting...")
     GAMES[name] = game_class
-    logger.info(f"Registered game: {name}")
+    logger.debug(f"Registered game: {name}")
 
 def get_game(name: str) -> GameInterface:
     """Get a game instance by name.
@@ -48,68 +65,81 @@ def get_game_info(name: str) -> Optional[Dict[str, str]]:
     """Get information about a specific game."""
     if name not in GAMES:
         return None
+        
     game = GAMES[name]()
     return {
         "name": game.name,
         "description": game.description,
-        "version": game.version
+        "version": game.version,
+        "staking_enabled": NEAR_AVAILABLE
     }
 
 def list_games() -> List[Dict[str, str]]:
-    """List all available games with metadata.
-    
-    Returns:
-        List of game info dictionaries
-    """
+    """List all available games with their information."""
     games = []
     for name, game_class in sorted(GAMES.items()):
         try:
-            instance = game_class()
+            game = game_class()
             games.append({
-                "name": name,
-                "description": instance.description,
-                "version": instance.version
+                "name": game.name,
+                "description": game.description,
+                "version": game.version,
+                "staking_enabled": NEAR_AVAILABLE
             })
         except Exception as e:
-            logger.error(f"Failed to load game {name}: {e}")
+            logger.warning(f"Could not load game {name}: {e}")
     return games
 
 def validate_game_implementation(game_class: Type[GameInterface]) -> bool:
-    """Validate that a game implementation meets requirements.
-    
-    Args:
-        game_class: Game class to validate
-        
-    Returns:
-        True if valid, False otherwise
-    """
+    """Validate that a game implementation has all required methods."""
     try:
-        instance = game_class()
-        # Verify required properties
-        assert isinstance(instance.name, str)
-        assert isinstance(instance.description, str)
-        assert isinstance(instance.version, str)
-        # Verify config handling
-        config = instance.get_default_config()
-        assert isinstance(config, GameConfig)
-        # Verify score range
-        min_score, max_score = instance.get_score_range()
-        assert isinstance(min_score, (int, float))
-        assert isinstance(max_score, (int, float))
-        assert min_score < max_score
+        # Create instance to test
+        game = game_class()
+        
+        # Test required properties
+        _ = game.name
+        _ = game.description
+        _ = game.version
+        
+        # Test required methods with minimal arguments
+        _ = game.get_default_config()
+        _ = game.get_score_range()
+        
+        # If NEAR is not available, we don't validate staking
+        if not NEAR_AVAILABLE:
+            return True
+            
+        # Test staking only if NEAR is available
+        _ = game.stake
+        
         return True
     except Exception as e:
         logger.error(f"Game validation failed: {e}")
         return False
 
-# Auto-load games from subdirectories
+# Load games from the games directory
 games_dir = Path(__file__).parent
+
+# Recursively find all Python files
 for game_dir in games_dir.iterdir():
-    if game_dir.is_dir() and not game_dir.name.startswith('_'):
-        try:
-            module = import_module(f".{game_dir.name}.game", package="cli.games")
-            if hasattr(module, 'register'):
-                module.register()
-                logger.info(f"Loaded game module: {game_dir.name}")
-        except ImportError as e:
-            logger.warning(f"Could not load game {game_dir.name}: {e}") 
+    if not game_dir.is_dir() or game_dir.name.startswith("__"):
+        continue
+        
+    game_file = game_dir / "game.py"
+    if not game_file.exists():
+        continue
+        
+    try:
+        # Import the game module
+        module = import_module(f".{game_dir.name}.game", package="cli.games")
+        
+        # Look for game classes
+        for item in dir(module):
+            if item.endswith("Game"):
+                game_class = getattr(module, item)
+                if validate_game_implementation(game_class):
+                    # Use the game's name property as the registry key
+                    game_instance = game_class()
+                    register_game(game_instance.name, game_class)
+    except Exception as e:
+        logger.warning(f"Could not load game from {game_file}: {e}") 

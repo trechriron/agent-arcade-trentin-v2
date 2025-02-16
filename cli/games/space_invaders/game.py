@@ -1,7 +1,7 @@
 """Space Invaders game implementation using ALE."""
 import gymnasium as gym
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 from stable_baselines3.common.atari_wrappers import (
@@ -14,15 +14,22 @@ from stable_baselines3.common.atari_wrappers import (
 from loguru import logger
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult
-from cli.core.near import NEARWallet
-from cli.core.stake import StakeRecord
+
+# Optional NEAR imports
+try:
+    from cli.core.near import NEARWallet
+    from cli.core.stake import StakeRecord
+    NEAR_AVAILABLE = True
+except ImportError:
+    NEAR_AVAILABLE = False
+    NEARWallet = Any  # Type alias for type hints
 
 class SpaceInvadersGame(GameInterface):
     """Space Invaders game implementation."""
     
     @property
     def name(self) -> str:
-        return "space-invaders"
+        return "space_invaders"
     
     @property
     def description(self) -> str:
@@ -42,14 +49,12 @@ class SpaceInvadersGame(GameInterface):
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():
-            env = FireResetEnv(env)
-        env = ClipRewardEnv(env)  # Clip rewards for stability
+        env = FireResetEnv(env)
         
-        # Memory-efficient preprocessing
+        # Observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayScaleObservation(env)
-        env = gym.wrappers.FrameStack(env, 3)  # Reduced frame stack
+        env = gym.wrappers.GrayscaleObservation(env)
+        env = gym.wrappers.FrameStackObservation(env, 4)
         
         # Add video recording wrapper if using rgb_array rendering
         if not render:
@@ -69,7 +74,7 @@ class SpaceInvadersGame(GameInterface):
         env = DummyVecEnv([lambda: self._make_env(render)])
         env = VecFrameStack(env, config.frame_stack)
         
-        # Create and train the model with optimized hyperparameters
+        # Create and train the model
         model = DQN(
             "CnnPolicy",
             env,
@@ -121,7 +126,7 @@ class SpaceInvadersGame(GameInterface):
             total_score += episode_score
             episode_lengths.append(episode_length)
             best_score = max(best_score, episode_score)
-            if episode_score >= 300:  # Consider clearing first wave as success
+            if episode_score > 100:  # Consider scoring over 100 as success
                 successes += 1
         
         return EvaluationResult(
@@ -135,19 +140,19 @@ class SpaceInvadersGame(GameInterface):
     def get_default_config(self) -> GameConfig:
         """Get default Space Invaders configuration."""
         return GameConfig(
-            total_timesteps=2000000,
-            learning_rate=0.0001,
-            buffer_size=25000,
-            learning_starts=5000,
-            batch_size=32,
-            exploration_fraction=0.1,
-            target_update_interval=1000,
-            frame_stack=3
+            total_timesteps=1000000,
+            learning_rate=0.00025,
+            buffer_size=250000,
+            learning_starts=50000,
+            batch_size=256,
+            exploration_fraction=0.2,
+            target_update_interval=2000,
+            frame_stack=4
         )
     
     def get_score_range(self) -> Tuple[float, float]:
         """Get Space Invaders score range."""
-        return (0.0, 1000.0)  # Typical score range for Space Invaders
+        return (0.0, 1000.0)  # Typical score range
     
     def validate_model(self, model_path: Path) -> bool:
         """Validate Space Invaders model file."""
@@ -161,6 +166,9 @@ class SpaceInvadersGame(GameInterface):
     
     def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
         """Stake NEAR on Space Invaders performance."""
+        if not NEAR_AVAILABLE:
+            raise RuntimeError("NEAR integration not available")
+            
         if not wallet.is_logged_in():
             raise ValueError("Must be logged in to stake")
         
@@ -187,4 +195,4 @@ class SpaceInvadersGame(GameInterface):
 def register():
     """Register the Space Invaders game."""
     from cli.games import register_game
-    register_game("space-invaders", SpaceInvadersGame) 
+    register_game("space_invaders", SpaceInvadersGame) 

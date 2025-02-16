@@ -4,7 +4,14 @@ from typing import Optional, Dict, Any, Tuple
 from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel
-from cli.core.near import NEARWallet
+
+# Optional NEAR imports
+try:
+    from cli.core.near import NEARWallet
+    from .staking import stake_on_game
+    NEAR_AVAILABLE = True
+except ImportError:
+    NEAR_AVAILABLE = False
 
 class GameConfig(BaseModel):
     """Base configuration for game training."""
@@ -93,17 +100,33 @@ class GameInterface(ABC):
         """Validate that a model file is valid for this game."""
         pass
     
-    @abstractmethod
-    def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
-        """Stake NEAR on agent performance.
+    def stake(self, wallet: Optional['NEARWallet'], model_path: Path, amount: float, target_score: float) -> None:
+        """Stake on the agent's performance.
         
         Args:
             wallet: NEAR wallet instance
-            model_path: Path to the model to evaluate
-            amount: Amount of NEAR to stake
+            model_path: Path to the model to stake on
+            amount: Amount to stake in NEAR
             target_score: Target score to achieve
         """
-        pass
+        if not NEAR_AVAILABLE:
+            logger.error("NEAR integration is not available. Install with: pip install -e '.[staking]'")
+            return
+            
+        # Validate model first
+        if not self.validate_model(model_path):
+            logger.error("Invalid model for this game")
+            return
+            
+        # Use the staking module
+        stake_on_game(
+            wallet=wallet,
+            game_name=self.name,
+            model_path=model_path,
+            amount=amount,
+            target_score=target_score,
+            score_range=self.get_score_range()
+        )
     
     def load_config(self, config_path: Optional[Path] = None) -> GameConfig:
         """Load and validate configuration.

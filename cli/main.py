@@ -5,14 +5,22 @@ import click
 from loguru import logger
 from typing import Optional
 
-from .core.wallet import NEARWallet, WalletConfig
-from .core.leaderboard import LeaderboardManager
+# Optional NEAR imports
+try:
+    from .core.wallet import NEARWallet
+    from .core.leaderboard import LeaderboardManager
+    NEAR_AVAILABLE = True
+except ImportError:
+    NEAR_AVAILABLE = False
+    NEARWallet = None
+    LeaderboardManager = None
+
 from .core.evaluation import EvaluationConfig, EvaluationPipeline
 from .games import get_registered_games, get_game_info
 
 # Initialize global managers
-wallet = NEARWallet()
-leaderboard_manager = LeaderboardManager()
+wallet = NEARWallet() if NEAR_AVAILABLE else None
+leaderboard_manager = LeaderboardManager() if NEAR_AVAILABLE else None
 
 @click.group()
 @click.version_option(package_name="agent-arcade")
@@ -23,6 +31,9 @@ def cli():
 @cli.group()
 def wallet_cmd():
     """Manage NEAR wallet."""
+    if not NEAR_AVAILABLE:
+        logger.error("NEAR integration is not available. Install with: pip install -e '.[staking]'")
+        return
     pass
 
 @wallet_cmd.command()
