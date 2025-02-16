@@ -20,13 +20,82 @@ The installation script will:
 - Configure ALE and Atari ROMs
 - Set up NEAR CLI integration (optional)
 
-2. **Verify Installation**
+2. **Verify ALE Installation**
 ```bash
 # Activate virtual environment (if not already active)
 source drl-env/bin/activate
 
+# Verify required packages
+pip list | grep -E "gymnasium|ale-py|shimmy|autorom"
+
+# If any packages are missing, install them:
+pip install "gymnasium[atari]>=0.29.1" "ale-py>=0.10.2" "shimmy[atari]>=2.0.0" "autorom>=0.6.1"
+
+# Test ALE environment registration and creation
+python3 -c "
+import gymnasium as gym
+import ale_py
+from pathlib import Path
+
+# Register ALE environments
+gym.register_envs(ale_py)
+
+# Print ALE version
+print(f'ALE version: {ale_py.__version__}')
+
+# Verify ROM installation
+rom_dir = Path(ale_py.__file__).parent / 'roms'
+print(f'ROM directory: {rom_dir}')
+print('Available ROMs:')
+for rom in sorted(rom_dir.glob('*.bin')):
+    print(f'  - {rom.name}')
+
+# Test environment creation
+env = gym.make('ALE/Pong-v5', render_mode='rgb_array')
+print('✅ Environment creation successful')
+
+# Test observation preprocessing
+env = gym.wrappers.ResizeObservation(env, (84, 84))
+env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
+env = gym.wrappers.FrameStackObservation(env, 4)
+obs, _ = env.reset()
+print(f'Observation shape: {obs.shape}')  # Should be (4, 84, 84)
+print('✅ Observation preprocessing verified')
+"
+
 # Verify CLI works
 agent-arcade --version
+```
+
+3. **Common Installation Issues**
+
+If you encounter any issues:
+
+a) **Missing ROMs**:
+```bash
+# Install AutoROM and download ROMs
+pip install "autorom>=0.6.1"
+python -m AutoROM --accept-license
+```
+
+b) **ALE Namespace Not Found**:
+```bash
+# Ensure ALE environments are registered
+python3 -c "
+import gymnasium as gym
+import ale_py
+gym.register_envs(ale_py)  # This line is crucial
+env = gym.make('ALE/Pong-v5')
+"
+```
+
+c) **Incorrect Observation Shape**:
+```python
+# Ensure correct wrapper order and parameters
+env = gym.make('ALE/YourGame-v5', render_mode='rgb_array')
+env = gym.wrappers.ResizeObservation(env, (84, 84))
+env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)  # keep_dim=False is important
+env = gym.wrappers.FrameStackObservation(env, 4)  # Use FrameStackObservation, not FrameStack
 ```
 
 ## Quick Start Template

@@ -242,18 +242,101 @@ log_interval: 1000      # Logging interval in timesteps
 '''
 
 def validate_env_id(env_id: str) -> bool:
-    """Validate that the environment ID exists in Gymnasium."""
+    """Validate that the environment ID exists and can be properly initialized in Gymnasium.
+    
+    Args:
+        env_id: The Gymnasium environment ID to validate
+        
+    Returns:
+        bool: Whether the environment is valid and properly configured
+    """
     try:
-        env = gym.make(env_id)
+        # Register ALE environments first
+        import ale_py
+        gym.register_envs(ale_py)
+        
+        # Create environment
+        env = gym.make(env_id, render_mode='rgb_array')
+        logger.info(f"Successfully created environment: {env_id}")
+        
+        # Test observation preprocessing
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
+        env = gym.wrappers.FrameStackObservation(env, 4)
+        
+        # Verify observation shape
+        obs, _ = env.reset()
+        if obs.shape != (4, 84, 84):
+            logger.error(f"Invalid observation shape: {obs.shape}, expected (4, 84, 84)")
+            return False
+            
+        # Test action space
+        action = env.action_space.sample()
+        obs, reward, terminated, truncated, info = env.step(action)
+        
         env.close()
+        logger.info("✅ Environment validation successful")
         return True
+        
+    except ImportError as e:
+        logger.error(f"Missing required package: {e}")
+        logger.info("Try installing: pip install 'gymnasium[atari]' 'ale-py' 'shimmy[atari]' 'autorom'")
+        return False
     except Exception as e:
         logger.error(f"Environment validation failed: {e}")
+        if "Namespace ALE not found" in str(e):
+            logger.info("Try running: python3 -c 'import gymnasium as gym; import ale_py; gym.register_envs(ale_py)'")
+        elif "ROM file" in str(e):
+            logger.info("Try installing ROMs: python -m AutoROM --accept-license")
+        return False
+
+def verify_rom_installation(game_name: str) -> bool:
+    """Verify that the ROM for a specific game is installed.
+    
+    Args:
+        game_name: Name of the game to verify
+        
+    Returns:
+        bool: Whether the ROM is properly installed
+    """
+    try:
+        import ale_py
+        from pathlib import Path
+        
+        # Convert game name to ROM filename
+        rom_name = game_name.lower() + ".bin"
+        
+        # Check ROM directory
+        rom_dir = Path(ale_py.__file__).parent / "roms"
+        rom_path = rom_dir / rom_name
+        
+        if not rom_path.exists():
+            logger.error(f"ROM file not found: {rom_path}")
+            logger.info("Available ROMs:")
+            for rom in sorted(rom_dir.glob("*.bin")):
+                logger.info(f"  - {rom.name}")
+            logger.info("\nTry reinstalling ROMs: python -m AutoROM --accept-license")
+            return False
+            
+        logger.info(f"✅ ROM file found: {rom_path}")
+        return True
+        
+    except ImportError as e:
+        logger.error(f"Missing required package: {e}")
+        logger.info("Try installing: pip install 'ale-py' 'autorom'")
+        return False
+    except Exception as e:
+        logger.error(f"ROM verification failed: {e}")
         return False
 
 def create_game_files(game_name: str, env_id: str, description: str, 
                      min_score: float, max_score: float, success_threshold: float):
     """Create all necessary files for a new game."""
+    # Verify ROM installation first
+    if not verify_rom_installation(game_name):
+        logger.error("ROM verification failed. Please fix ROM installation before proceeding.")
+        sys.exit(1)
+    
     # Convert game name to different formats
     game_id = game_name.lower().replace(" ", "-")
     class_name = "".join(word.capitalize() for word in game_name.split()) + "Game"
