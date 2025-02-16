@@ -1,6 +1,6 @@
 # Adding New Games to Agent Arcade
 
-This guide walks you through the process of adding a new Atari Learning Environment (ALE) game to Agent Arcade.
+This guide walks you through the process of adding a new Atari Learning Environment (ALE) game to Agent Arcade. **See all of the game environments at the link here: [ALE Game Environments](https://ale.farama.org/environments/).**
 
 ## Prerequisites
 
