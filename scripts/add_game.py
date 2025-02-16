@@ -10,7 +10,7 @@ from loguru import logger
 TEMPLATE_GAME_PY = '''"""[GAME_NAME] implementation using ALE."""
 import gymnasium as gym
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 from stable_baselines3.common.atari_wrappers import (
@@ -23,8 +23,14 @@ from stable_baselines3.common.atari_wrappers import (
 from loguru import logger
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult
-from cli.core.near import NEARWallet
-from cli.core.stake import StakeRecord
+
+try:
+    from cli.core.near import NEARWallet
+    from cli.core.stake import StakeRecord
+    NEAR_AVAILABLE = True
+except ImportError:
+    NEAR_AVAILABLE = False
+    NEARWallet = Any  # Type alias for type hints
 
 class [CLASS_NAME](GameInterface):
     """[GAME_NAME] implementation."""
@@ -168,6 +174,9 @@ class [CLASS_NAME](GameInterface):
     
     def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
         """Stake NEAR on performance."""
+        if not NEAR_AVAILABLE:
+            raise NotImplementedError("NEAR integration is not available. Install py_near to enable staking.")
+            
         if not wallet.is_logged_in():
             raise ValueError("Must be logged in to stake")
         
@@ -279,6 +288,10 @@ def validate_env_id(env_id: str) -> bool:
         return True
         
     except ImportError as e:
+        if "py_near" in str(e):
+            # NEAR integration is optional, continue with validation
+            logger.debug("NEAR integration not available")
+            return True
         logger.error(f"Missing required package: {e}")
         logger.info("Try installing: pip install 'gymnasium[atari]' 'ale-py' 'shimmy[atari]' 'autorom'")
         return False
@@ -375,6 +388,13 @@ def create_game_files(game_name: str, env_id: str, description: str,
     logger.info(f"Successfully created game files for {game_name}")
     logger.info(f"Game implementation: {game_dir}")
     logger.info(f"Configuration: configs/{game_id}.yaml")
+    
+    # Add note about NEAR integration
+    try:
+        import py_near
+        logger.info("NEAR integration is available for staking")
+    except ImportError:
+        logger.info("Note: NEAR integration is not available. Install py_near package to enable staking functionality.")
 
 def main():
     """Main entry point."""

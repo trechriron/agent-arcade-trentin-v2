@@ -1,0 +1,36 @@
+# Riverraid Training Configuration
+
+# Training parameters
+total_timesteps: 1000000  # Total training steps
+learning_rate: 0.00025    # Learning rate for optimization
+buffer_size: 250000       # Size of replay buffer
+learning_starts: 50000    # Steps before starting learning
+batch_size: 256          # Batch size for training
+exploration_fraction: 0.2 # Fraction of training for exploration
+target_update_interval: 2000  # Steps between target network updates
+frame_stack: 4           # Number of frames to stack
+
+# Environment settings
+env_id: "ALE/Riverraid-v5"
+frame_skip: 4            # Number of frames to skip
+noop_max: 30            # Max random no-ops at start
+
+# Model architecture
+policy: "CnnPolicy"      # Policy network type
+features_extractor: "NatureCNN"  # CNN architecture
+features_dim: 512       # Feature dimension
+
+# Preprocessing
+normalize_images: true   # Normalize pixel values
+grayscale: true         # Convert to grayscale
+resize_shape: [84, 84]  # Input image size
+
+# Evaluation settings
+eval_episodes: 100      # Episodes for evaluation
+eval_deterministic: true # Use deterministic actions
+render_eval: false      # Render during evaluation
+
+# Logging
+tensorboard_log: true   # Enable TensorBoard logging
+save_freq: 100000       # Save frequency in timesteps
+log_interval: 1000      # Logging interval in timesteps

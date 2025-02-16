@@ -39,6 +39,7 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 - **Pong**: Deep Q-Network (DQN) implementation with optimized training parameters
 - **Space Invaders**: DQN with enhanced reward shaping and optimized architecture
+- **River Raid**: DQN with optimized architecture
 
 > **Interested in adding a new game? See the [Adding New Games](docs/adding-games.md) guide.**
 
