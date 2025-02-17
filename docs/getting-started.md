@@ -16,12 +16,13 @@ Before you begin, ensure your system meets these requirements:
 
 1. **Clone the Repository**:
 ```bash
-git clone https://github.com/your-username/agent-arcade.git
+git clone https://github.com/jbarnes850/agent-arcade.git
 cd agent-arcade
 ```
 
 2. **Run the Installation Script**:
 ```bash
+chmod +x install.sh
 ./install.sh
 ```
 
@@ -203,6 +204,55 @@ agent-arcade login
 ```bash
 agent-arcade stake pong --model models/pong_final.zip --amount 10 --target-score 15
 ```
+
+## Training Your First Agent
+
+To start training an agent:
+
+```bash
+# Train Pong agent with visualization
+agent-arcade train pong --render
+```
+
+The initial training will run for 250,000 timesteps (about 30-45 minutes) to give you a good baseline model. You'll see:
+
+1. Progress updates every 1000 steps showing:
+   - Percentage complete
+   - Current step count
+   - Estimated time remaining
+
+2. Real-time metrics in TensorBoard:
+   ```bash
+   tensorboard --logdir ./tensorboard
+   ```
+   Visit http://localhost:6006 to view:
+   - Learning progress
+   - Score improvements
+   - Training speed (FPS)
+
+## Training Duration Guide
+
+- **Quick Training (30-45 min)**
+  - 250,000 timesteps (default)
+  - Good for initial testing
+  - Suitable for simple games like Pong
+
+- **Full Training (2-4 hours)**
+  - 1,000,000 timesteps
+  - Better performance
+  - Required for complex games
+
+To run longer training:
+```bash
+agent-arcade train pong --timesteps 1000000
+```
+
+## Monitoring Tips
+
+1. Watch the terminal for progress updates
+2. Use TensorBoard for detailed metrics
+3. Models are saved automatically when training completes
+4. Use `--no-render` for faster training
 
 ## Common Error Messages
 
