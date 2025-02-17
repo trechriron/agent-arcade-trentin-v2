@@ -16,6 +16,7 @@ from stable_baselines3.common.atari_wrappers import (
 from datetime import datetime, timedelta
 import time
 import gymnasium as gym
+from dataclasses import dataclass
 
 # Optional NEAR imports
 try:
@@ -25,12 +26,13 @@ try:
 except ImportError:
     NEAR_AVAILABLE = False
 
-class GameConfig(BaseModel):
-    """Base configuration for game training."""
-    total_timesteps: int = 250000  # Reduced for quicker initial training
+@dataclass
+class GameConfig:
+    """Game training configuration."""
+    total_timesteps: int = 1_000_000
     learning_rate: float = 0.00025
-    buffer_size: int = 100000  # Reduced to match shorter training
-    learning_starts: int = 10000  # Reduced to start learning earlier
+    buffer_size: int = 250_000
+    learning_starts: int = 50_000
     batch_size: int = 256
     exploration_fraction: float = 0.2
     target_update_interval: int = 2000
@@ -75,24 +77,45 @@ class ProgressCallback(BaseCallback):
         return True
 
 class GameInterface(ABC):
-    """Base interface that all games must implement."""
+    """Base interface for all games."""
     
     @property
     @abstractmethod
     def name(self) -> str:
-        """Game name."""
+        """Get game name."""
         pass
-    
+        
+    @property
+    @abstractmethod
+    def env_id(self) -> str:
+        """Get environment ID."""
+        pass
+        
     @property
     @abstractmethod
     def description(self) -> str:
-        """Game description."""
+        """Get game description."""
         pass
-    
+        
     @property
     @abstractmethod
-    def version(self) -> str:
-        """Game version."""
+    def score_range(self) -> Tuple[float, float]:
+        """Get valid score range."""
+        pass
+        
+    @abstractmethod
+    def make_env(self) -> Any:
+        """Create game environment."""
+        pass
+        
+    @abstractmethod
+    def load_model(self, model_path: str) -> Any:
+        """Load trained model."""
+        pass
+        
+    @abstractmethod
+    def get_default_config(self) -> GameConfig:
+        """Get default game configuration."""
         pass
     
     @abstractmethod
@@ -159,25 +182,11 @@ class GameInterface(ABC):
         pass
     
     @abstractmethod
-    def get_default_config(self) -> GameConfig:
-        """Get default training configuration."""
-        pass
-    
-    @abstractmethod
-    def get_score_range(self) -> Tuple[float, float]:
-        """Get the possible score range for this game.
-        
-        Returns:
-            Tuple of (min_score, max_score)
-        """
-        pass
-    
-    @abstractmethod
     def validate_model(self, model_path: Path) -> bool:
         """Validate that a model file is valid for this game."""
         pass
     
-    def stake(self, wallet: Optional['NEARWallet'], model_path: Path, amount: float, target_score: float) -> None:
+    async def stake(self, wallet: Optional['NEARWallet'], model_path: Path, amount: float, target_score: float) -> None:
         """Stake on the agent's performance.
         
         Args:
@@ -196,13 +205,13 @@ class GameInterface(ABC):
             return
             
         # Use the staking module
-        stake_on_game(
+        await stake_on_game(
             wallet=wallet,
             game_name=self.name,
             model_path=model_path,
             amount=amount,
             target_score=target_score,
-            score_range=self.get_score_range()
+            score_range=self.score_range
         )
     
     def load_config(self, config_path: Optional[Path] = None) -> GameConfig:
@@ -236,7 +245,7 @@ class GameInterface(ABC):
         Returns:
             Reward multiplier (1.0-3.0)
         """
-        min_score, max_score = self.get_score_range()
+        min_score, max_score = self.score_range
         normalized_score = (score - min_score) / (max_score - min_score)
         
         if normalized_score >= 0.8:  # Exceptional performance

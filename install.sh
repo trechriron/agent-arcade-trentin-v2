@@ -91,6 +91,13 @@ if ! pip install "gymnasium[atari]>=0.29.1" "gymnasium[accept-rom-license]>=0.29
     exit 1
 fi
 
+# Install Gymnasium other dependencies (for video recording)
+echo "Installing Gymnasium video recording support..."
+if ! pip install "gymnasium[other]>=0.29.1"; then
+    echo "❌ Failed to install Gymnasium video recording support."
+    exit 1
+fi
+
 # Install ALE interface
 echo "Installing latest ALE-py..."
 if ! pip install "ale-py>=0.10.2"; then
@@ -109,6 +116,13 @@ fi
 echo "Installing Stable-Baselines3..."
 if ! pip install "stable-baselines3[extra]>=2.5.0"; then
     echo "❌ Failed to install Stable-Baselines3."
+    exit 1
+fi
+
+# Install standard-imghdr for TensorBoard compatibility
+echo "Installing standard-imghdr for TensorBoard..."
+if ! pip install "standard-imghdr>=3.13.0"; then
+    echo "❌ Failed to install standard-imghdr."
     exit 1
 fi
 
@@ -223,6 +237,45 @@ except Exception as e:
 echo "📥 Installing Agent Arcade..."
 if ! pip install -e .; then
     echo "❌ Failed to install Agent Arcade package."
+    exit 1
+fi
+
+# Check Node.js installation for NEAR CLI
+echo "🔍 Checking Node.js installation..."
+if ! command -v node &> /dev/null; then
+    echo "❌ Node.js is required for NEAR CLI but not installed."
+    echo "Please install Node.js from https://nodejs.org/"
+    echo "Recommended version: 14.x or higher"
+    exit 1
+fi
+
+# Verify Node.js version
+node_version=$(node -v | cut -d'v' -f2)
+if [ "$(printf '%s\n' "14.0.0" "$node_version" | sort -V | head -n1)" != "14.0.0" ]; then
+    echo "❌ Node.js version must be 14.0.0 or higher. Found version: $node_version"
+    exit 1
+fi
+
+# Install NEAR CLI if not present
+if ! command -v near &> /dev/null; then
+    echo "🌐 Installing NEAR CLI..."
+    npm install -g near-cli || {
+        echo "❌ NEAR CLI installation failed."
+        exit 1
+    }
+fi
+
+# Install staking dependencies
+echo "📥 Installing staking dependencies..."
+if ! pip install -e ".[staking]"; then
+    echo "❌ Failed to install staking dependencies."
+    exit 1
+fi
+
+# Verify NEAR CLI installation
+echo "✅ Verifying NEAR CLI..."
+if ! near --version; then
+    echo "❌ NEAR CLI verification failed."
     exit 1
 fi
 

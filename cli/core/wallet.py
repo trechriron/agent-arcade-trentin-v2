@@ -150,7 +150,8 @@ class NEARWallet:
                 # Parse balance from output
                 for line in result.stdout.split('\n'):
                     if 'amount' in line:
-                        amount = float(line.split(':')[1].strip().replace("'", ""))
+                        # Remove commas and quotes from amount string
+                        amount = float(line.split(':')[1].strip().replace("'", "").replace(",", ""))
                         return amount / 1e24  # Convert from yoctoNEAR to NEAR
             return None
         except Exception as e:

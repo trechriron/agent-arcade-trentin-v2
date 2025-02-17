@@ -286,3 +286,74 @@ If you encounter issues not covered here:
    - Error message
    - Steps to reproduce
    - Logs from `install.sh`
+
+## NEAR Integration Setup
+
+If you want to participate in competitions and staking:
+
+1. **Install Node.js and npm**:
+   - Download from https://nodejs.org/
+   - Version 14.x or higher required
+
+2. **Install NEAR CLI**:
+```bash
+npm install -g near-cli
+```
+
+3. **Install Staking Dependencies**:
+```bash
+pip install -e ".[staking]"
+```
+
+4. **Create NEAR Account**:
+   - Visit https://wallet.near.org/
+   - Follow account creation process
+   - Save your account ID
+
+5. **Login to NEAR**:
+```bash
+agent-arcade wallet login
+```
+
+6. **Verify Setup**:
+```bash
+# Check wallet status
+agent-arcade wallet status
+
+# View balance
+agent-arcade wallet balance
+```
+
+## Troubleshooting NEAR Integration
+
+### Node.js/npm Issues:
+```bash
+# Check Node.js version
+node --version  # Should be >= 14.0.0
+
+# Check npm version
+npm --version
+
+# Update npm if needed
+npm install -g npm
+```
+
+### NEAR CLI Issues:
+```bash
+# Reinstall NEAR CLI
+npm uninstall -g near-cli
+npm install -g near-cli
+
+# Verify installation
+near --version
+```
+
+### Staking Issues:
+```bash
+# Clean install staking dependencies
+pip uninstall -y agent-arcade
+pip install -e ".[staking]"
+
+# Verify RPC connection
+agent-arcade wallet status
+```

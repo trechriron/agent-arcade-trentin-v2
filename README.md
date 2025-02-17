@@ -37,9 +37,9 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 ## 🎮 Current Games
 
-- **Pong**: Deep Q-Network (DQN) implementation with optimized training parameters
-- **Space Invaders**: DQN with enhanced reward shaping and optimized architecture
-- **River Raid**: DQN with optimized architecture
+- **Pong**: Classic paddle vs paddle game (recommended for beginners)
+- **Space Invaders**: Defend Earth from alien invasion
+- **River Raid**: Control a jet, manage fuel, and destroy enemies
 
 > **Interested in adding a new game? See the [Adding New Games](docs/adding-games.md) guide.**
 
@@ -56,6 +56,7 @@ Core Requirements:
 Optional Requirements (for staking):
 - **Node.js & npm**: Required for NEAR CLI (v14 or higher)
 - **NEAR Account**: Required for staking and competitions
+- **GPU**: Optional for faster training
 
 ### Installation
 
@@ -83,7 +84,7 @@ If you encounter issues during installation:
    pip uninstall -y ale-py shimmy gymnasium
    
    # Install dependencies in correct order
-   pip install "ale-py==0.8.1"
+   pip install "ale-py==0.10.2"
    pip install "shimmy[atari]==0.2.1"
    pip install "gymnasium[atari]==0.28.1"
    ```
@@ -217,20 +218,38 @@ frame_stack: 4
 
 ## 💎 NEAR Integration (Optional)
 
-The NEAR integration allows you to stake tokens on your agent's performance and compete for rewards. This is an optional feature that can be installed with:
+The NEAR integration allows you to stake tokens on your agent's performance and compete for rewards. This is an optional feature that requires:
 
+1. **Prerequisites**:
+   - Node.js >= 14.0.0 and npm
+   - NEAR account (create at https://wallet.near.org/)
+   - NEAR CLI (installed via npm)
+
+2. **Installation**:
 ```bash
+# Install NEAR CLI
+npm install -g near-cli
+
+# Install Agent Arcade with staking support
 pip install -e ".[staking]"
 ```
 
-### Prerequisites for NEAR Integration
+3. **Login**:
+```bash
+# Simple login (opens web browser)
+agent-arcade wallet login
 
-1. Install Node.js and npm from https://nodejs.org/
-2. Install NEAR CLI:
-   ```bash
-   npm install -g near-cli
-   ```
-3. Create a NEAR account at https://wallet.near.org/
+# Specify network and account
+agent-arcade wallet login --network testnet --account-id your-account.testnet
+```
+
+### Technical Implementation
+
+Agent Arcade uses:
+- NEAR CLI for wallet operations
+- Direct JSON RPC API calls for contract interactions
+- Secure key management via system keychain
+- Asynchronous contract calls for better performance
 
 ### Staking System
 
@@ -241,99 +260,21 @@ pip install -e ".[staking]"
   - Score ≥ 5: 1.5x stake
   - Score < 5: Stake goes to pool
 
-### Smart Contract
+### Example Usage
 
-- Manages stakes and rewards
-- Maintains leaderboard
-- Handles pool distribution
-- Automatic reward calculation
-
-### NEAR Wallet Integration
-
-1. **Login with Web Browser**:
 ```bash
-# Simple login (opens web browser)
-agent-arcade wallet login
-
-# Specify network and account
-agent-arcade wallet login --network testnet --account-id your-account.testnet
-```
-
-2. **Check Login Status**:
-```bash
-agent-arcade wallet status
-```
-
-3. **View Balance**:
-```bash
+# Check your balance
 agent-arcade wallet balance
+
+# Place a stake
+agent-arcade stake pong --model models/pong_final.zip --amount 10 --target-score 15
+
+# View leaderboard
+agent-arcade leaderboard top pong
+
+# View your stats
+agent-arcade leaderboard player pong
 ```
-
-4. **Logout**:
-```bash
-agent-arcade wallet logout
-```
-
-The login process will:
-1. Open your default web browser
-2. Redirect to NEAR Wallet
-3. Ask for authorization
-4. Automatically complete the login after approval
-
-### Staking and Rewards
-
-**Stake on Performance**:
-
-```bash
-# Stake 10 NEAR on achieving score ≥ 15
-pong-arcade stake --model-path models/my_agent.zip --amount 10 --target-score 15 ## make sure to replace the model path with the path to your trained model
-```
-
-**Evaluate Your Agent**:
-
-```bash
-# Automatically evaluates and claims rewards if successful
-agent-arcade pong evaluate
-```
-
-**View Rewards**:
-
-```bash
-# Check your earnings and statistics
-agent-arcade pong stats
-```
-
-### Competition Features
-
-**Global Leaderboard**:
-
-```bash
-# View top players
-agent-arcade pong leaderboard
-
-# View recent games
-agent-arcade pong recent
-```
-
-**Reward Structure**:
-
-- Score ≥ 15: 3x stake
-- Score ≥ 10: 2x stake
-- Score ≥ 5: 1.5x stake
-- Score < 5: Stake goes to pool
-
-**Pool Statistics**:
-
-```bash
-# View current pool balance
-agent-arcade pool
-```
-
-### Pool Statistics
-
-- Initial pool: 1000 NEAR
-- Minimum stake: 1 NEAR
-- Maximum reward: 5x stake
 
 For detailed documentation, see [NEAR Integration Guide](docs/near-integration.md).
 

@@ -21,8 +21,10 @@ setup(
     ],
     extras_require={
         "staking": [
-            "py-near>=1.1.50",
+            "aiohttp>=3.8.0",
+            "requests>=2.31.0",
             "base58>=2.1.1",
+            "cryptography>=42.0.0"
         ]
     },
     entry_points={
