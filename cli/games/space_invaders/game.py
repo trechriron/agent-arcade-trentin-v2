@@ -13,7 +13,7 @@ from stable_baselines3.common.atari_wrappers import (
 )
 from loguru import logger
 
-from cli.games.base import GameInterface, GameConfig, EvaluationResult
+from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback
 
 # Optional NEAR imports
 try:
@@ -80,9 +80,9 @@ class SpaceInvadersGame(GameInterface):
             frame_stack=4
         )
     
-    def _make_env(self, render: bool = False, record: bool = True) -> gym.Env:
+    def _make_env(self, render: bool = False, record: bool = False) -> gym.Env:
         """Create the Space Invaders environment with proper wrappers."""
-        # Use human rendering if requested, otherwise rgb_array
+        # Use human rendering only when explicitly requested
         render_mode = "human" if render else "rgb_array"
         env = gym.make(self.env_id, render_mode=render_mode, frameskip=4)
         
@@ -91,14 +91,15 @@ class SpaceInvadersGame(GameInterface):
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
         env = FireResetEnv(env)
+        env = ClipRewardEnv(env)  # Add reward clipping for stability
         
         # Observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env)
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
         env = gym.wrappers.FrameStackObservation(env, 4)
         
-        # Add video recording wrapper if using rgb_array rendering
-        if not render:
+        # Add video recording only when explicitly requested
+        if record and not render:
             env = gym.wrappers.RecordVideo(
                 env,
                 "videos/training",
@@ -112,43 +113,49 @@ class SpaceInvadersGame(GameInterface):
         config = self.load_config(config_path)
         
         # Create vectorized environment without recording
-        env = DummyVecEnv([lambda: self._make_env(render, record=False) for _ in range(4)])  # Use 4 parallel environments
+        env = DummyVecEnv([lambda: self._make_env(render, record=False) for _ in range(4)])  # Use 4 envs for stability
         env = VecFrameStack(env, config.frame_stack)
         
-        # Create and train the model with optimized parameters
+        # Create and train the model with optimized parameters for faster learning
         model = DQN(
             "CnnPolicy",
             env,
-            learning_rate=config.learning_rate,
-            buffer_size=config.buffer_size,
-            learning_starts=config.learning_starts,
-            batch_size=config.batch_size,
-            exploration_fraction=config.exploration_fraction,
-            target_update_interval=config.target_update_interval,
+            learning_rate=0.0001,  # Reduced learning rate for stability
+            buffer_size=50000,     # Smaller buffer for memory efficiency
+            learning_starts=1000,   # Start learning very early
+            batch_size=32,         # Small batches for faster updates
+            exploration_fraction=0.1,  # Faster exploration decay
+            target_update_interval=1000,  # More frequent target updates
             tensorboard_log="./tensorboard/space_invaders",
             verbose=1,
-            train_freq=2,           # More frequent updates
-            gradient_steps=1,       # One gradient step per update
+            train_freq=4,          # Update every 4 steps
+            gradient_steps=1,      # One gradient step per update
             exploration_initial_eps=1.0,
-            exploration_final_eps=0.1,  # Higher final exploration
-            max_grad_norm=10,       # Clip gradients for stability
-            device='auto'           # Automatically use GPU if available
+            exploration_final_eps=0.05,  # Lower final exploration
+            max_grad_norm=10,
+            device='auto',
+            policy_kwargs={
+                "net_arch": [256, 128],  # Smaller network architecture
+                "normalize_images": True  # Normalize inputs for stability
+            }
         )
         
-        logger.info(f"Training Space Invaders agent for {config.total_timesteps} timesteps...")
-        logger.info("This initial training will take about 10-15 minutes.")
-        logger.info("For better performance, you can increase total_timesteps to 250000 after this initial run.")
+        # Reduce total timesteps for faster training
+        total_timesteps = 250000  # ~30-45 minutes of training
+        
+        logger.info(f"Training Space Invaders agent for {total_timesteps} timesteps...")
+        logger.info("This training should take about 30-45 minutes.")
         logger.info("Monitor progress in TensorBoard: tensorboard --logdir ./tensorboard")
         
         # Use our custom ProgressCallback for consistent progress tracking
-        callback = ProgressCallback(config.total_timesteps)
+        callback = ProgressCallback(total_timesteps)
         
         try:
             model.learn(
-                total_timesteps=config.total_timesteps,
+                total_timesteps=total_timesteps,
                 callback=callback,
                 progress_bar=True,
-                log_interval=100    # More frequent logging
+                log_interval=100
             )
         except Exception as e:
             logger.error(f"Training failed: {e}")

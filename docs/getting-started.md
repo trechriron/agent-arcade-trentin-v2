@@ -69,6 +69,7 @@ sudo apt-get install python3.12 python3.12-venv
 If you encounter ROM installation problems:
 
 1. **Install Dependencies in Order**:
+
 ```bash
 # First, install gymnasium with Atari support
 pip install "gymnasium[atari]==0.28.1"
@@ -81,6 +82,7 @@ pip install "AutoROM[accept-rom-license]==0.6.1"
 ```
 
 2. **Install ROMs**:
+
 ```bash
 # Method 1: Using AutoROM (preferred)
 python3 -m AutoROM --accept-license
@@ -147,11 +149,13 @@ pip install "AutoROM[accept-rom-license]==0.6.1"
 1. **Node.js Installation**:
 
 On macOS:
+
 ```bash
 brew install node@14
 ```
 
 On Ubuntu/Debian:
+
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_14.x | sudo -E bash -
 sudo apt-get install -y nodejs
@@ -175,32 +179,38 @@ npm install -g near-cli
 After successful installation:
 
 1. **Verify CLI Installation**:
+
 ```bash
 agent-arcade --version
 ```
 
 2. **List Available Games**:
+
 ```bash
 agent-arcade list-games
 ```
 
 3. **Train Your First Agent**:
+
 ```bash
 # Train Pong agent with visualization
 agent-arcade train pong --render
 ```
 
 4. **Evaluate Your Agent**:
+
 ```bash
 agent-arcade evaluate pong --model models/pong_final.zip
 ```
 
 5. **Login to NEAR Wallet**:
+
 ```bash
 agent-arcade login
 ```
 
 6. **Stake on Performance**:
+
 ```bash
 agent-arcade stake pong --model models/pong_final.zip --amount 10 --target-score 15
 ```
@@ -222,9 +232,11 @@ The initial training will run for 250,000 timesteps (about 30-45 minutes) to giv
    - Estimated time remaining
 
 2. Real-time metrics in TensorBoard:
+
    ```bash
    tensorboard --logdir ./tensorboard
    ```
+
    Visit http://localhost:6006 to view:
    - Learning progress
    - Score improvements
@@ -243,6 +255,7 @@ The initial training will run for 250,000 timesteps (about 30-45 minutes) to giv
   - Required for complex games
 
 To run longer training:
+
 ```bash
 agent-arcade train pong --timesteps 1000000
 ```
@@ -262,12 +275,14 @@ agent-arcade train pong --timesteps 1000000
 
 2. **"ModuleNotFoundError: No module named 'ale_py'"**:
    - Solution: Reinstall ALE-py
+
    ```bash
    pip install ale-py==0.8.1
    ```
 
 3. **"Error: Cannot find module 'near-api-js'"**:
    - Solution: Reinstall NEAR CLI
+
    ```bash
    npm install -g near-cli
    ```
@@ -296,11 +311,13 @@ If you want to participate in competitions and staking:
    - Version 14.x or higher required
 
 2. **Install NEAR CLI**:
+
 ```bash
 npm install -g near-cli
 ```
 
 3. **Install Staking Dependencies**:
+
 ```bash
 pip install -e ".[staking]"
 ```
@@ -311,11 +328,13 @@ pip install -e ".[staking]"
    - Save your account ID
 
 5. **Login to NEAR**:
+
 ```bash
 agent-arcade wallet login
 ```
 
 6. **Verify Setup**:
+
 ```bash
 # Check wallet status
 agent-arcade wallet status
@@ -327,6 +346,7 @@ agent-arcade wallet balance
 ## Troubleshooting NEAR Integration
 
 ### Node.js/npm Issues:
+
 ```bash
 # Check Node.js version
 node --version  # Should be >= 14.0.0
@@ -339,6 +359,7 @@ npm install -g npm
 ```
 
 ### NEAR CLI Issues:
+
 ```bash
 # Reinstall NEAR CLI
 npm uninstall -g near-cli
@@ -349,6 +370,7 @@ near --version
 ```
 
 ### Staking Issues:
+
 ```bash
 # Clean install staking dependencies
 pip uninstall -y agent-arcade

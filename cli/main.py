@@ -16,7 +16,7 @@ except ImportError:
     LeaderboardManager = None
 
 from .core.evaluation import EvaluationConfig, EvaluationPipeline
-from .games import get_registered_games, get_game_info
+from .games import get_registered_games, get_game_info, list_games, get_game
 
 # Initialize global managers
 wallet = NEARWallet() if NEAR_AVAILABLE else None
@@ -101,7 +101,7 @@ def top(game: str, limit: int):
         click.echo(
             f"{i:<6}{entry.account_id:<30}"
             f"{entry.score:<15.2f}"
-            f"{entry.success_rate*100:<14.1f}%"
+            f"{entry.success_rate*100:>13.1f}%"
             f"{entry.episodes:<10}"
         )
 
@@ -133,7 +133,7 @@ def recent(game: str, limit: int):
         click.echo(
             f"{entry.account_id:<30}"
             f"{entry.score:<15.2f}"
-            f"{entry.success_rate*100:<14.1f}%"
+            f"{entry.success_rate*100:>13.1f}%"
             f"{date:<20}"
         )
 
@@ -150,16 +150,16 @@ def player(game: str):
         return
     
     game_board = leaderboard_manager.get_leaderboard(game)
-    best_entry = game_board.get_player_best(wallet.account_id)
-    rank = game_board.get_player_rank(wallet.account_id)
+    best_entry = game_board.get_player_best(wallet.config.account_id)
+    rank = game_board.get_player_rank(wallet.config.account_id)
     
     if not best_entry:
-        logger.info(f"No entries found for {wallet.account_id} in {game}")
+        logger.info(f"No entries found for {wallet.config.account_id} in {game}")
         return
     
     from datetime import datetime
     
-    click.echo(f"\nStats for {wallet.account_id} in {game}:")
+    click.echo(f"\nStats for {wallet.config.account_id} in {game}:")
     click.echo("-" * 80)
     click.echo(f"Best Score: {best_entry.score:.2f}")
     click.echo(f"Success Rate: {best_entry.success_rate*100:.1f}%")
@@ -197,15 +197,13 @@ def stats():
 @click.option('--verbose', default=1, help='Verbosity level')
 def test_evaluate(game: str, model_path: str, episodes: int = 20, render: bool = True, verbose: int = 1):
     """Test evaluate a trained model without requiring login."""
-    games = get_registered_games()
-    if game not in games:
+    game_info = get_game_info(game)
+    if not game_info:
         logger.error(f"Game {game} not found")
         return
     
-    game_interface = games[game]()
-    
     try:
-        result = game_interface.evaluate(
+        result = game_info.evaluate(
             model_path=Path(model_path),
             episodes=episodes,
             record=render
@@ -268,7 +266,7 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, verbose: i
         click.echo(f"Success Rate: {result.success_rate*100:.1f}%")
         click.echo(f"Episodes: {result.n_episodes}")
         
-        rank = leaderboard_manager.get_leaderboard(game).get_player_rank(wallet.account_id)
+        rank = leaderboard_manager.get_leaderboard(game).get_player_rank(wallet.config.account_id)
         if rank:
             click.echo(f"Current Rank: {rank}")
     
@@ -422,18 +420,44 @@ def list():
 @click.option('--config', type=click.Path(exists=True), help='Path to configuration file')
 def train(game: str, render: bool, config: Optional[str]):
     """Train an agent for a specific game."""
-    games = get_registered_games()
-    if game not in games:
-        logger.error(f"Game {game} not found")
-        return
-    
-    game_instance = games[game]()
     try:
+        game_instance = get_game(game)
         config_path = Path(config) if config else None
         model_path = game_instance.train(render=render, config_path=config_path)
         logger.info(f"Training complete! Model saved to: {model_path}")
     except Exception as e:
         logger.error(f"Training failed: {e}")
+
+@cli.command()
+def list_games():
+    """List all available games."""
+    from cli.games import get_registered_games
+    
+    games = []
+    for game_name in get_registered_games():
+        game = get_game_info(game_name)
+        if game:
+            games.append({
+                "name": game.name,
+                "description": game.description,
+                "version": game.version,
+                "staking_enabled": NEAR_AVAILABLE
+            })
+    
+    click.echo("\nAvailable Games:")
+    click.echo("-" * 80)
+    click.echo(f"{'Name':<20}{'Description':<40}{'Version':<10}{'Staking':<10}")
+    click.echo("-" * 80)
+    
+    for game in games:
+        staking = "✓" if game["staking_enabled"] else "-"
+        click.echo(
+            f"{game['name']:<20}"
+            f"{game['description']:<40}"
+            f"{game['version']:<10}"
+            f"{staking:<10}"
+        )
+    click.echo()
 
 if __name__ == "__main__":
     cli() 

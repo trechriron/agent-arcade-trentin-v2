@@ -172,14 +172,13 @@ class EvaluationPipeline:
         
         result = self.evaluate()
         
-        self.leaderboard_manager.add_result(
-            game=self.game,
-            account_id=self.wallet.account_id,
-            model_path=str(model_path),
+        self.leaderboard_manager.record_score(
+            game_name=self.game,
+            account_id=self.wallet.config.account_id,
             score=result.mean_reward,
-            episodes=result.n_episodes,
             success_rate=result.success_rate,
-            metadata=result.metadata
+            episodes=result.n_episodes,
+            model_path=str(model_path)
         )
         
         return result 

@@ -57,10 +57,19 @@ class PongGame(GameInterface):
         
     def make_env(self):
         """Create the game environment."""
-        env = gym.make(self.env_id, render_mode='rgb_array')
+        env = gym.make(self.env_id, render_mode='rgb_array', frameskip=4)
+        
+        # Add standard Atari wrappers
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        env = ClipRewardEnv(env)
+        
+        # Observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env)
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
         env = gym.wrappers.FrameStackObservation(env, 4)
+        
         return env
         
     def load_model(self, model_path: str):

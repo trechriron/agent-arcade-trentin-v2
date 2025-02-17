@@ -1,6 +1,9 @@
-# Model files
-models/
-*.zip
+# Model files - ignore all except specific pre-trained models
+models/*
+!models/space_invaders_dqn_3000000_steps.zip
+!models/pong_dqn_500000_steps.zip
+
+# Ignore other model formats
 *.pkl
 *.h5
 *.pt
@@ -9,8 +12,6 @@ models/
 *.pb
 
 # Specific model directories and patterns
-**/models/
-**/*.model
 **/checkpoints/
 **/saved_models/
 

@@ -6,8 +6,11 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from pydantic import BaseModel
 from loguru import logger
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime
+
+# Define leaderboard directory
+LEADERBOARD_DIR = os.path.join(os.path.expanduser("~"), ".agent-arcade", "leaderboards")
 
 @dataclass
 class LeaderboardEntry:
@@ -34,6 +37,7 @@ class GameLeaderboard:
     
     def _load_entries(self):
         """Load entries from disk."""
+        os.makedirs(LEADERBOARD_DIR, exist_ok=True)
         path = os.path.join(LEADERBOARD_DIR, f"{self.game_name}.json")
         if os.path.exists(path):
             with open(path, 'r') as f:

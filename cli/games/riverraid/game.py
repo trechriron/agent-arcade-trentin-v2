@@ -13,7 +13,7 @@ from stable_baselines3.common.atari_wrappers import (
 )
 from loguru import logger
 
-from cli.games.base import GameInterface, GameConfig, EvaluationResult
+from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback
 
 try:
     from cli.core.near import NEARWallet
