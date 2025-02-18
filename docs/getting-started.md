@@ -203,16 +203,18 @@ agent-arcade train pong --render
 agent-arcade evaluate pong --model models/pong_final.zip
 ```
 
-5. **Login to NEAR Wallet**:
+5. **Login to NEAR**:
 
 ```bash
-agent-arcade login
+agent-arcade wallet-cmd login
+# Optional: Specify network and account
+agent-arcade wallet-cmd login --network testnet --account-id your-account.testnet
 ```
 
 6. **Stake on Performance**:
 
 ```bash
-agent-arcade stake pong --model models/pong_final.zip --amount 10 --target-score 15
+agent-arcade stake place pong --model models/pong_final.zip --amount 10 --target-score 15
 ```
 
 ## Training Your First Agent
@@ -330,17 +332,19 @@ pip install -e ".[staking]"
 5. **Login to NEAR**:
 
 ```bash
-agent-arcade wallet login
+agent-arcade wallet-cmd login
+# Optional: Specify network and account
+agent-arcade wallet-cmd login --network testnet --account-id your-account.testnet
 ```
 
 6. **Verify Setup**:
 
 ```bash
 # Check wallet status
-agent-arcade wallet status
+agent-arcade wallet-cmd status
 
-# View balance
-agent-arcade wallet balance
+# Logout when needed
+agent-arcade wallet-cmd logout
 ```
 
 ## Troubleshooting NEAR Integration
@@ -377,5 +381,5 @@ pip uninstall -y agent-arcade
 pip install -e ".[staking]"
 
 # Verify RPC connection
-agent-arcade wallet status
+agent-arcade wallet-cmd status
 ```

@@ -146,21 +146,24 @@ agent-arcade stats [game] --model [model_path]
 ### Competition and Staking
 
 ```bash
-# Check your NEAR balance
-agent-arcade balance
+# Check your wallet status
+agent-arcade wallet-cmd status
 
 # Stake on agent performance
-agent-arcade stake pong --model models/pong_final.zip --amount 10 --target-score 15
-agent-arcade stake space-invaders --model models/space_invaders_optimized/final_model.zip --amount 5 --target-score 300
+agent-arcade stake place pong --model models/pong_final.zip --amount 10 --target-score 15
+agent-arcade stake place space-invaders --model models/space_invaders_optimized/final_model.zip --amount 5 --target-score 300
 
 # View competition leaderboard
-agent-arcade leaderboard [game]
+agent-arcade leaderboard top pong
 
-# View recent games and results
-agent-arcade recent [game]
+# View recent games
+agent-arcade leaderboard recent pong
 
-# Check pool statistics
-agent-arcade pool stats
+# View player stats
+agent-arcade leaderboard player pong
+
+# View global stats
+agent-arcade leaderboard stats
 ```
 
 ## 🛠 Implementation Details
@@ -237,10 +240,10 @@ pip install -e ".[staking]"
 3. **Login**:
 ```bash
 # Simple login (opens web browser)
-agent-arcade wallet login
+agent-arcade wallet-cmd login
 
 # Specify network and account
-agent-arcade wallet login --network testnet --account-id your-account.testnet
+agent-arcade wallet-cmd login --network testnet --account-id your-account.testnet
 ```
 
 ### Technical Implementation
@@ -264,10 +267,10 @@ Agent Arcade uses:
 
 ```bash
 # Check your balance
-agent-arcade wallet balance
+agent-arcade wallet-cmd status
 
 # Place a stake
-agent-arcade stake pong --model models/pong_final.zip --amount 10 --target-score 15
+agent-arcade stake place pong --model models/pong_final.zip --amount 10 --target-score 15
 
 # View leaderboard
 agent-arcade leaderboard top pong
@@ -289,3 +292,12 @@ For detailed documentation, see [NEAR Integration Guide](docs/near-integration.m
 ## 📄 License
 
 [MIT LICENSE](LICENSE)
+
+# Login to NEAR Wallet
+agent-arcade wallet-cmd login
+
+# Check your wallet status
+agent-arcade wallet-cmd status
+
+# Logout from wallet
+agent-arcade wallet-cmd logout
