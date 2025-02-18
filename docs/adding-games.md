@@ -5,6 +5,7 @@ This guide walks you through the process of adding a new Atari Learning Environm
 ## Prerequisites
 
 1. **Install Agent Arcade**
+
 ```bash
 # Clone the repository
 git clone https://github.com/jbarnes850/agent-arcade.git
@@ -15,12 +16,14 @@ cd agent-arcade
 ```
 
 The installation script will:
+
 - Set up a Python virtual environment
 - Install all required dependencies
 - Configure ALE and Atari ROMs
 - Set up NEAR CLI integration (optional)
 
 2. **Verify ALE Installation**
+
 ```bash
 # Activate virtual environment (if not already active)
 source drl-env/bin/activate
@@ -72,6 +75,7 @@ agent-arcade --version
 If you encounter any issues:
 
 a) **Missing ROMs**:
+
 ```bash
 # Install AutoROM and download ROMs
 pip install "autorom>=0.6.1"
@@ -79,6 +83,7 @@ python -m AutoROM --accept-license
 ```
 
 b) **ALE Namespace Not Found**:
+
 ```bash
 # Ensure ALE environments are registered
 python3 -c "
@@ -90,6 +95,7 @@ env = gym.make('ALE/Pong-v5')
 ```
 
 c) **Incorrect Observation Shape**:
+
 ```python
 # Ensure correct wrapper order and parameters
 env = gym.make('ALE/YourGame-v5', render_mode='rgb_array')
@@ -103,6 +109,7 @@ env = gym.wrappers.FrameStackObservation(env, 4)  # Use FrameStackObservation, n
 We provide two ways to add a new game:
 
 ### Option 1: Using the Automation Script (Recommended)
+
 ```bash
 # Activate virtual environment if not already active
 source drl-env/bin/activate
@@ -115,6 +122,7 @@ python scripts/add_game.py "Breakout" "ALE/Breakout-v5" "Classic brick-breaking 
 ```
 
 ### Option 2: Manual Setup
+
 ```bash
 # 1. Create new game directory
 mkdir -p cli/games/your_game_name
@@ -440,6 +448,7 @@ log_interval: 1000      # Logging interval in timesteps
 ## Testing Your Implementation
 
 1. **Verify Environment**:
+
 ```bash
 # Activate virtual environment if not already active
 source drl-env/bin/activate
@@ -449,16 +458,19 @@ python3 -c "import gymnasium; env = gymnasium.make('ALE/YourGame-v5')"
 ```
 
 2. **Verify Game Registration**:
+
 ```bash
 agent-arcade list-games  # Your game should appear
 ```
 
 3. **Test Training**:
+
 ```bash
 agent-arcade train your-game-name --render
 ```
 
 4. **Test Evaluation**:
+
 ```bash
 agent-arcade evaluate your-game-name --model models/your_game_name_final.zip
 ```
@@ -468,6 +480,7 @@ agent-arcade evaluate your-game-name --model models/your_game_name_final.zip
 ### Common Issues
 
 1. **Environment Not Found**
+
 ```bash
 # Verify ALE installation
 python3 -c "import ale_py; print(ale_py.__version__)"
@@ -477,6 +490,7 @@ python3 -c "import ale_py; from pathlib import Path; print(Path(ale_py.__file__)
 ```
 
 2. **Observation Shape Issues**
+
 ```python
 # Debug observation shape
 obs, _ = env.reset()
@@ -494,6 +508,7 @@ env = VecFrameStack(env, 4)
 ```
 
 3. **Package Version Issues**
+
 ```bash
 # Required versions
 pip install "gymnasium[atari]>=0.29.1"
@@ -504,6 +519,7 @@ pip install "autorom>=0.6.1"
 ```
 
 4. **ROM Installation Issues**
+
 ```bash
 # Verify ROM installation
 python3 -c "
@@ -521,6 +537,7 @@ python3 -m AutoROM --accept-license
 ```
 
 5. **Training Issues**
+
 ```bash
 # Enable debug logging
 import logging
@@ -687,6 +704,7 @@ print(f"Free memory: {info.free/1024**2:.2f}MB")
 ```
 
 2. **Vectorized Environments**:
+
 ```python
 # Use multiple environments for parallel training
 n_envs = 4  # Number of parallel environments
@@ -694,6 +712,7 @@ env = SubprocVecEnv([lambda: make_env() for _ in range(n_envs)])
 ```
 
 3. **Frame Skipping**:
+
 ```python
 # Implement efficient frame skipping
 env = MaxAndSkipEnv(env, skip=4)  # Process every 4th frame
