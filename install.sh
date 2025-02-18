@@ -259,10 +259,27 @@ fi
 # Install NEAR CLI if not present
 if ! command -v near &> /dev/null; then
     echo "🌐 Installing NEAR CLI..."
-    npm install -g near-cli || {
-        echo "❌ NEAR CLI installation failed."
-        exit 1
+    
+    # Try installing without sudo first
+    npm install -g near-cli 2>/dev/null || {
+        echo "⚠️ Permission denied. Trying with sudo..."
+        
+        # Retry with sudo if the first attempt fails
+        sudo npm install -g near-cli || {
+            echo "❌ NEAR CLI installation failed."
+            exit 1
+        }
     }
+
+    # Verify installation
+    if command -v near &> /dev/null; then
+        echo "✅ NEAR CLI installed successfully."
+    else
+        echo "❌ NEAR CLI installation failed even after sudo attempt."
+        exit 1
+    fi
+else
+    echo "✅ NEAR CLI is already installed."
 fi
 
 # Install staking dependencies
