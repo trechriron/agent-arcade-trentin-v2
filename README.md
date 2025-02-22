@@ -48,13 +48,15 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 ### Prerequisites
 
 Core Requirements:
+
 - **Python**: Version 3.8 - 3.12 (3.13 not yet supported)
 - **Operating System**: Linux, macOS, or WSL2 on Windows
 - **Storage**: At least 2GB free space
 - **Memory**: At least 4GB RAM recommended
 
 Optional Requirements (for staking):
-- **Node.js & npm**: Required for NEAR CLI (v14 or higher)
+
+- **Node.js & npm**: Required for NEAR CLI (v16 or higher)
 - **NEAR Account**: Required for staking and competitions
 - **GPU**: Optional for faster training
 
@@ -84,7 +86,7 @@ If you encounter issues during installation:
    pip uninstall -y ale-py shimmy gymnasium
    
    # Install dependencies in correct order
-   pip install "ale-py==0.10.2"
+   pip install "ale-py==0.10.1"
    pip install "shimmy[atari]==0.2.1"
    pip install "gymnasium[atari]==0.28.1"
    ```
@@ -132,12 +134,14 @@ tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
 
 ### Evaluating Agents
 
+> **Important**: Models expect 16 frames stacked (shape: 16, 84, 84) for observations. Ensure your model and environment configurations match.
+
 ```bash
 # Evaluate Pong agent
-agent-arcade evaluate pong --model models/pong_final.zip --episodes 10 --render
+agent-arcade evaluate pong models/pong_final.zip --episodes 10 --render
 
 # Evaluate Space Invaders agent
-agent-arcade evaluate space-invaders --model models/space_invaders_optimized/final_model.zip --episodes 5 --render --record
+agent-arcade evaluate space_invaders models/space_invaders_final.zip --episodes 5 --render
 
 # View evaluation metrics and competition recommendations
 agent-arcade stats [game] --model [model_path]
@@ -172,7 +176,7 @@ agent-arcade leaderboard stats
 
 - Custom CNN feature extractor (3 convolutional layers)
 - Dual 512-unit fully connected layers
-- Frame stacking (4 frames) for temporal information
+- Frame stacking (16 frames) for temporal information
 - Optimized for Apple Silicon (MPS) and CPU performance
 
 ### Training Parameters
@@ -185,7 +189,7 @@ learning_starts: 50000
 batch_size: 256
 exploration_fraction: 0.2
 target_update_interval: 2000
-frame_stack: 4
+frame_stack: 16
 ```
 
 ### Performance Optimizations
@@ -221,65 +225,42 @@ frame_stack: 4
 
 ## 💎 NEAR Integration (Optional)
 
-The NEAR integration allows you to stake tokens on your agent's performance and compete for rewards. This is an optional feature that requires:
+The NEAR integration allows you to stake tokens on your agent's performance and compete for rewards. Our staking contract is written in Rust and is already deployed on testnet. To keep the repository lightweight, compiled artifacts (including the generated WASM) are ignored from version control.
 
-1. **Prerequisites**:
-   - Node.js >= 14.0.0 and npm
-   - NEAR account (create at https://wallet.near.org/)
-   - NEAR CLI (installed via npm)
+### Building the Staking Contract Locally
 
-2. **Installation**:
-```bash
-# Install NEAR CLI
-npm install -g near-cli
+If you want to build the contract locally (for testing or to deploy your own version), follow these steps:
 
-# Install Agent Arcade with staking support
-pip install -e ".[staking]"
-```
+1. **Navigate to the Contract Directory:**
 
-3. **Login**:
-```bash
-# Simple login (opens web browser)
-agent-arcade wallet-cmd login
+   ```bash
+   cd contract
+   ```
 
-# Specify network and account
-agent-arcade wallet-cmd login --network testnet --account-id your-account.testnet
-```
+2. **Build the Contract for the WASM Target:**
 
-### Technical Implementation
+   ```bash
+   cargo build --target wasm32-unknown-unknown --release
+   ```
 
-Agent Arcade uses:
-- NEAR CLI for wallet operations
-- Direct JSON RPC API calls for contract interactions
-- Secure key management via system keychain
-- Asynchronous contract calls for better performance
+   This will compile the contract, and the output (e.g., a `.wasm` file) will be generated under the `target/` directory.
 
-### Staking System
+3. **Note:**  
+   The contract's compiled artifacts (including the WASM file) are not tracked in the repository to keep our codebase lightweight. We recommend rebuilding the contract locally as needed.
 
-- Stake NEAR on your agent's performance
-- Tiered reward structure based on achieved scores:
-  - Score ≥ 15: 3x stake
-  - Score ≥ 10: 2x stake
-  - Score ≥ 5: 1.5x stake
-  - Score < 5: Stake goes to pool
+### Using the Deployed Contract
 
-### Example Usage
+Since our staking contract is already deployed on NEAR testnet, you can use the provided NEAR CLI commands to interact with it:
 
 ```bash
-# Check your balance
+# Check your wallet status
 agent-arcade wallet-cmd status
 
-# Place a stake
+# Place a stake on your agent
 agent-arcade stake place pong --model models/pong_final.zip --amount 10 --target-score 15
-
-# View leaderboard
-agent-arcade leaderboard top pong
-
-# View your stats
-agent-arcade leaderboard player pong
 ```
 
-For detailed documentation, see [NEAR Integration Guide](docs/near-integration.md).
+For more details, refer to the [NEAR Integration Guide](docs/near-integration.md).
 
 ## 🤝 Contributing
 
@@ -292,12 +273,3 @@ For detailed documentation, see [NEAR Integration Guide](docs/near-integration.m
 ## 📄 License
 
 [MIT LICENSE](LICENSE)
-
-# Login to NEAR Wallet
-agent-arcade wallet-cmd login
-
-# Check your wallet status
-agent-arcade wallet-cmd status
-
-# Logout from wallet
-agent-arcade wallet-cmd logout

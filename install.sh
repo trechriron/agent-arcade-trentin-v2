@@ -100,7 +100,7 @@ fi
 
 # Install ALE interface
 echo "Installing latest ALE-py..."
-if ! pip install "ale-py>=0.10.2"; then
+if ! pip install "ale-py==0.10.1"; then
     echo "❌ Failed to install ALE interface."
     exit 1
 fi
@@ -158,7 +158,7 @@ print('✅ Environment registration successful')
 env = gym.make('ALE/Pong-v5', render_mode='rgb_array')
 env = gym.wrappers.ResizeObservation(env, (84, 84))
 env = gym.wrappers.GrayscaleObservation(env)
-env = gym.wrappers.FrameStackObservation(env, 4)
+env = gym.wrappers.FrameStackObservation(env, 16)
 print('✅ Environment wrappers verified')
 " || {
     echo "❌ ALE interface verification failed."

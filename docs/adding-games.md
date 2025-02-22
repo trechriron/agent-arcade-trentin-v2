@@ -31,8 +31,8 @@ source drl-env/bin/activate
 # Verify required packages
 pip list | grep -E "gymnasium|ale-py|shimmy|autorom"
 
-# If any packages are missing, install them:
-pip install "gymnasium[atari]>=0.29.1" "ale-py>=0.10.2" "shimmy[atari]>=2.0.0" "autorom>=0.6.1"
+# Install dependencies if needed
+pip install "gymnasium[atari]>=0.29.1" "ale-py==0.10.1" "shimmy[atari]>=2.0.0" "autorom>=0.6.1"
 
 # Test ALE environment registration and creation
 python3 -c "
@@ -512,7 +512,7 @@ env = VecFrameStack(env, 4)
 ```bash
 # Required versions
 pip install "gymnasium[atari]>=0.29.1"
-pip install "ale-py>=0.10.2"
+pip install "ale-py==0.10.1"
 pip install "shimmy[atari]>=2.0.0"
 pip install "stable-baselines3[extra]>=2.5.0"
 pip install "autorom>=0.6.1"
