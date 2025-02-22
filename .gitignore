@@ -36,7 +36,7 @@ wandb/
 logs/
 agent_arcade.egg-info/
 .DS_Store
-near.md
+.coverage
 
 # --------------------------
 # Rust and Cargo artifacts

@@ -1,11 +1,33 @@
+//! # Agent Arcade Smart Contract
+//! 
+//! This contract implements a staking and reward system for AI agents competing in classic arcade games.
+//! It manages game configurations, user stakes, and a global leaderboard system.
+//! 
+//! ## Architecture
+//! 
+//! The contract uses NEAR's storage collections to maintain:
+//! - Game configurations and parameters
+//! - User stakes and performance tracking
+//! - Global leaderboard and statistics
+//! 
+//! ## Security
+//! 
+//! The contract implements several security measures:
+//! - Owner-only administrative functions
+//! - Stake amount validation
+//! - Score range verification
+//! - Protected pool balance management
+
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault, Promise, BorshStorageKey, NearToken};
 use near_sdk::json_types::U128;
 
+/// Balance type alias for U128 to represent NEAR token amounts
 pub type Balance = U128;
 
+/// Storage keys for contract collections
 #[derive(BorshStorageKey, BorshSerialize)]
 pub enum StorageKey {
     Stakes,
@@ -13,51 +35,82 @@ pub enum StorageKey {
     GameConfigs,
 }
 
+/// Configuration parameters for each supported game
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct GameConfig {
+    /// Minimum achievable score for the game
     pub min_score: i32,
+    /// Maximum achievable score for the game
     pub max_score: i32,
+    /// Minimum stake amount required (in yoctoNEAR)
     pub min_stake: Balance,
+    /// Maximum reward multiplier for perfect performance
     pub max_multiplier: u32,
+    /// Whether the game is currently enabled for staking
     pub enabled: bool,
 }
 
+/// Information about a user's active stake
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct StakeInfo {
+    /// Game identifier (e.g., "pong", "space_invaders")
     pub game: String,
+    /// Staked amount in yoctoNEAR
     pub amount: Balance,
+    /// Target score the user aims to achieve
     pub target_score: i32,
+    /// Timestamp when the stake was placed
     pub timestamp: u64,
+    /// Number of game attempts made
     pub games_played: u32,
 }
 
+/// Entry in the global leaderboard
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct LeaderboardEntry {
+    /// User's NEAR account ID
     pub account_id: AccountId,
+    /// Game identifier
     pub game: String,
+    /// Highest score achieved
     pub best_score: i32,
+    /// Total NEAR tokens earned
     pub total_earned: Balance,
+    /// Total number of games played
     pub games_played: u32,
+    /// Percentage of successful stakes
     pub win_rate: f64,
+    /// Highest reward multiplier achieved
     pub highest_reward_multiplier: u32,
+    /// Timestamp of last game played
     pub last_played: u64,
 }
 
+/// Main contract structure
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct AgentArcadeContract {
+    /// Contract owner's account ID
     pub owner_id: AccountId,
+    /// Total NEAR tokens in the reward pool
     pub pool_balance: Balance,
+    /// Mapping of account IDs to their active stakes
     pub stakes: LookupMap<AccountId, StakeInfo>,
+    /// Global leaderboard entries
     pub leaderboard: UnorderedMap<AccountId, LeaderboardEntry>,
+    /// Game configurations
     pub game_configs: UnorderedMap<String, GameConfig>,
 }
 
 #[near_bindgen]
 impl AgentArcadeContract {
+    /// Initializes the contract with an owner account
+    /// 
+    /// # Arguments
+    /// * `owner_id` - The account ID that will have administrative privileges
     #[init]
     pub fn new(owner_id: AccountId) -> Self {
         Self {
@@ -69,6 +122,17 @@ impl AgentArcadeContract {
         }
     }
 
+    /// Registers a new game or updates existing game configuration
+    /// 
+    /// # Arguments
+    /// * `game` - Game identifier (e.g., "pong")
+    /// * `min_score` - Minimum achievable score
+    /// * `max_score` - Maximum achievable score
+    /// * `min_stake` - Minimum stake amount in yoctoNEAR
+    /// * `max_multiplier` - Maximum reward multiplier
+    /// 
+    /// # Security
+    /// * Only callable by contract owner
     #[payable]
     pub fn register_game(&mut self, game: String, min_score: i32, max_score: i32, min_stake: Balance, max_multiplier: u32) {
         assert_eq!(env::predecessor_account_id(), self.owner_id, "Only owner can register games");
@@ -82,6 +146,16 @@ impl AgentArcadeContract {
         });
     }
 
+    /// Places a stake on achieving a target score in a game
+    /// 
+    /// # Arguments
+    /// * `game` - Game identifier
+    /// * `target_score` - Score the user aims to achieve
+    /// 
+    /// # Panics
+    /// * If game is not registered or disabled
+    /// * If stake amount is below minimum
+    /// * If target score is outside valid range
     #[payable]
     pub fn place_stake(&mut self, game: String, target_score: i32) {
         let account_id = env::predecessor_account_id();
@@ -133,7 +207,7 @@ impl AgentArcadeContract {
         let stake_info = self.stakes.get(&account_id).expect("No active stake");
         
         // Get game config
-        let game_config = self.game_configs.get(&stake_info.game)
+        let _game_config = self.game_configs.get(&stake_info.game)
             .expect("Game config not found");
         
         // Calculate reward using the stake's target_score
@@ -210,11 +284,52 @@ impl AgentArcadeContract {
         self.leaderboard.insert(account_id, &entry);
     }
 
-    // View methods
-    pub fn get_pool_balance(&self) -> Balance {
+    /// Funds the reward pool with additional NEAR
+    /// 
+    /// # Arguments
+    /// None - amount is determined by attached deposit
+    /// 
+    /// # Returns
+    /// * `U128` - New pool balance after funding
+    /// 
+    /// # Security
+    /// * Only callable by contract owner
+    /// * Requires attached deposit
+    #[payable]
+    pub fn fund_pool(&mut self) -> U128 {
+        // Only owner can fund pool
+        assert_eq!(
+            env::predecessor_account_id(),
+            self.owner_id,
+            "Only owner can fund pool"
+        );
+        
+        // Get attached deposit
+        let deposit = U128(env::attached_deposit().as_yoctonear());
+        assert!(deposit.0 > 0, "Deposit required to fund pool");
+
+        // Update pool balance
+        self.pool_balance = U128(self.pool_balance.0 + deposit.0);
+        
+        // Log the funding event
+        env::log_str(&format!(
+            "Pool funded with {} yoctoNEAR. New balance: {}",
+            deposit.0,
+            self.pool_balance.0
+        ));
+
         self.pool_balance
     }
 
+    /// Returns the current pool balance
+    /// 
+    /// # Returns
+    /// * `U128` - Current pool balance in yoctoNEAR
+    pub fn get_pool_balance(&self) -> U128 {
+        self.pool_balance
+    }
+
+    // View methods
     pub fn get_stake(&self, account_id: AccountId) -> Option<StakeInfo> {
         self.stakes.get(&account_id)
     }

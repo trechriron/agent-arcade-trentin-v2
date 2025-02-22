@@ -15,18 +15,21 @@ Before you begin, ensure your system meets these requirements:
 ## Installation
 
 1. **Clone the Repository**:
+
 ```bash
 git clone https://github.com/jbarnes850/agent-arcade.git
 cd agent-arcade
 ```
 
 2. **Run the Installation Script**:
+
 ```bash
 chmod +x install.sh
 ./install.sh
 ```
 
 The script will:
+
 - Create a Python virtual environment
 - Install all required dependencies
 - Set up Atari ROMs
@@ -39,6 +42,7 @@ The script will:
 If you see Python version errors:
 
 1. **Check Current Version**:
+
 ```bash
 python3 --version
 ```
@@ -46,18 +50,21 @@ python3 --version
 2. **Install Compatible Version**:
 
 On macOS:
+
 ```bash
 brew install python@3.12
 brew link python@3.12
 ```
 
 On Ubuntu/Debian:
+
 ```bash
 sudo apt-get update
 sudo apt-get install python3.12 python3.12-venv
 ```
 
 On Windows (WSL2):
+
 ```bash
 sudo add-apt-repository ppa:deadsnakes/ppa
 sudo apt-get update

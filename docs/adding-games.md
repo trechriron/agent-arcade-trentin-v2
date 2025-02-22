@@ -690,6 +690,7 @@ policy_kwargs = dict(
 Tips for improving training efficiency:
 
 1. **Memory Management**:
+
 ```python
 # Clear GPU memory between training runs
 import torch
@@ -765,7 +766,7 @@ def test_evaluation():
    - Update documentation
    - Submit PR with description
 
-## Resources
+Resources
 
 - [Gymnasium Documentation](https://gymnasium.farama.org/)
 - [Stable-Baselines3 Guide](https://stable-baselines3.readthedocs.io/)

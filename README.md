@@ -16,10 +16,10 @@ A platform for training and competing with AI agents in classic arcade games usi
 
 Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that learns to play games by:
 
-- Observing game frames as input (what the agent "sees")
-- Learning which actions lead to higher rewards through trial and error
-- Using a neural network to approximate the optimal action-value function
-- Storing and learning from past experiences (replay buffer)
+- Observing game frames as input (what the agent "sees" to play the game).
+- Learning which actions lead to higher rewards through trial and error.
+- Using a neural network to approximate the optimal action-value function and make decisions based on the processed game state.
+- Storing and learning from past experiences (replay buffer) and improving through experience.
 
 ### Training Process
 
@@ -71,8 +71,24 @@ cd agent-arcade
 chmod +x ./install.sh
 ./install.sh
 
-# Optional: Install NEAR integration for staking
+# Optional: Install NEAR integration for staking (if not selected during installation)
 pip install -e ".[staking]"
+```
+
+The installation script will:
+
+- Set up a Python virtual environment
+- Install all required dependencies
+- Download and configure Atari ROMs
+- Install NEAR CLI (optional)
+- Create necessary directories
+- Verify the installation
+
+For GPU support, an additional script is available:
+
+```bash
+chmod +x ./gpu_install.sh
+./gpu_install.sh
 ```
 
 ### Installation Troubleshooting
@@ -126,7 +142,7 @@ agent-arcade train pong           # Without visualization (faster)
 
 # Train Space Invaders agent
 agent-arcade train space-invaders --render
-agent-arcade train space-invaders --config configs/space_invaders_optimized_sb3_config.yaml
+agent-arcade train space-invaders --config models/space_invaders/config.yaml
 
 # Monitor training progress
 tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
@@ -134,14 +150,14 @@ tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
 
 ### Evaluating Agents
 
-> **Important**: Models expect 16 frames stacked (shape: 16, 84, 84) for observations. Ensure your model and environment configurations match.
+> **Important**: Frame stacking varies by game (Pong: 4 frames, Space Invaders/River Raid: 16 frames). Ensure your model and environment configurations match.
 
 ```bash
 # Evaluate Pong agent
-agent-arcade evaluate pong models/pong_final.zip --episodes 10 --render
+agent-arcade evaluate pong models/pong/final_model.zip --episodes 10 --render
 
 # Evaluate Space Invaders agent
-agent-arcade evaluate space_invaders models/space_invaders_final.zip --episodes 5 --render
+agent-arcade evaluate space_invaders models/space_invaders/final_model.zip --episodes 5 --render
 
 # View evaluation metrics and competition recommendations
 agent-arcade stats [game] --model [model_path]
@@ -154,8 +170,8 @@ agent-arcade stats [game] --model [model_path]
 agent-arcade wallet-cmd status
 
 # Stake on agent performance
-agent-arcade stake place pong --model models/pong_final.zip --amount 10 --target-score 15
-agent-arcade stake place space-invaders --model models/space_invaders_optimized/final_model.zip --amount 5 --target-score 300
+agent-arcade stake place pong --model models/pong/final_model.zip --amount 10 --target-score 15
+agent-arcade stake place space-invaders --model models/space_invaders/final_model.zip --amount 5 --target-score 270
 
 # View competition leaderboard
 agent-arcade leaderboard top pong
@@ -169,15 +185,6 @@ agent-arcade leaderboard player pong
 # View global stats
 agent-arcade leaderboard stats
 ```
-
-## 🛠 Implementation Details
-
-### DQN Architecture
-
-- Custom CNN feature extractor (3 convolutional layers)
-- Dual 512-unit fully connected layers
-- Frame stacking (16 frames) for temporal information
-- Optimized for Apple Silicon (MPS) and CPU performance
 
 ### Training Parameters
 
@@ -218,10 +225,21 @@ frame_stack: 16
 
 ## 🔄 Development Workflow
 
-1. Train baseline model (15 min to 4 hours on M1/M2 Macs depending on the game and the number of training steps)
+Training locally? See the [Training Guide](docs/training-guide.md) for more details.
+
+1. Train baseline model:
+   - Pong: ~2 hours on M-series Mac
+   - Space Invaders: ~6 hours on M-series Mac
+   - River Raid: Custom reward shaping, training time varies
 2. Evaluate and record performance
 3. Iterate on hyperparameters if needed
 4. Save best model for competition baseline
+
+Each game directory contains:
+
+- `config.yaml`: Game-specific training configuration
+- `checkpoints/`: Saved model checkpoints during training
+- `final_model.zip`: Best performing model
 
 ## 💎 NEAR Integration (Optional)
 
@@ -257,10 +275,10 @@ Since our staking contract is already deployed on NEAR testnet, you can use the 
 agent-arcade wallet-cmd status
 
 # Place a stake on your agent
-agent-arcade stake place pong --model models/pong_final.zip --amount 10 --target-score 15
+agent-arcade stake place pong --model models/pong/final_model.zip --amount 10 --target-score 15
 ```
 
-For more details, refer to the [NEAR Integration Guide](docs/near-integration.md).
+See the [Competition Guide](docs/competition-guide.md) for more details.
 
 ## 🤝 Contributing
 
