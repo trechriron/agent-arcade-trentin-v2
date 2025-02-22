@@ -4,7 +4,7 @@ This directory contains model configurations and saved models for different Atar
 
 ## Directory Structure
 
-```
+```bash
 models/
 ├── README.md
 ├── pong/
@@ -24,12 +24,14 @@ models/
 ## Game Configurations
 
 ### Pong
+
 - Environment: `ALE/Pong-v5`
 - Training Steps: 1M
 - Expected Score: 15+ points
 - Training Time: ~2 hours on M-series MacBook
 
 ### Space Invaders
+
 - Environment: `ALE/SpaceInvaders-v5`
 - Training Steps: 3M
 - Expected Score: 270+ points
@@ -37,6 +39,7 @@ models/
 - Special Features: Prioritized replay, dueling networks
 
 ### River Raid
+
 - Environment: `ALE/RiverRaid-v5`
 - Training Steps: 2M
 - Custom reward shaping for fuel management
@@ -45,16 +48,19 @@ models/
 ## Usage
 
 1. **Training a Model**:
+
    ```bash
    agent-arcade train pong --config models/pong/config.yaml
    ```
 
 2. **Evaluating a Model**:
+
    ```bash
    agent-arcade evaluate pong --model models/pong/final_model.zip
    ```
 
 3. **Competition Entry**:
+
    ```bash
    agent-arcade stake place pong --model models/pong/final_model.zip --amount 10 --target-score 15
    ```
@@ -62,6 +68,7 @@ models/
 ## Model Checkpoints
 
 Each game directory contains a `checkpoints` folder that stores intermediate models during training. Checkpoints are saved every 100,000 steps and can be used to:
+
 - Resume training from a specific point
 - Compare performance across training stages
 - Select the best performing model
@@ -69,6 +76,7 @@ Each game directory contains a `checkpoints` folder that stores intermediate mod
 ## Configuration Details
 
 Each `config.yaml` file contains:
+
 - Training hyperparameters
 - Network architecture settings
 - Preprocessing options
@@ -78,11 +86,13 @@ Each `config.yaml` file contains:
 ## Performance Metrics
 
 Monitor training progress using TensorBoard:
+
 ```bash
 tensorboard --logdir ./tensorboard
 ```
 
 Key metrics to watch:
+
 - Episode rewards
 - Loss values
 - Exploration rate
@@ -109,4 +119,4 @@ Key metrics to watch:
    - CPU: Use 4+ cores
    - RAM: 8GB minimum
    - GPU: Optional but recommended
-   - Storage: 1GB for models 
+   - Storage: 1GB for models
