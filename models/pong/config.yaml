@@ -1,25 +1,51 @@
 algo: "DQN"
 env: "ALE/Pong-v5"
-total_timesteps: 1000000
+total_timesteps: 2000000
 learning_rate: 0.00025
-buffer_size: 500000
-learning_starts: 100000
-batch_size: 256
-exploration_fraction: 0.4
+buffer_size: 1000000
+learning_starts: 50000
+batch_size: 32
+exploration_fraction: 0.1
 exploration_final_eps: 0.01
-train_log_interval: 100
+train_freq: 4
+gradient_steps: 1
 
 # Network optimization
 gamma: 0.99
 target_update_interval: 1000
-gradient_steps: 4
-train_freq: 4
-frame_stack: 16
+frame_stack: 4
+double_q: true
+prioritized_replay: true
+prioritized_replay_alpha: 0.6
+prioritized_replay_beta0: 0.4
 
 # Preprocessing
 scale_rewards: true
 normalize_frames: true
 terminal_on_life_loss: true
+max_grad_norm: 10
+
+# Evaluation settings
+eval_episodes: 100
+eval_freq: 25000
+eval_deterministic: true
+render_eval: false
+success_threshold: 15.0
+
+# Checkpointing
+save_freq: 100000
+checkpoint_path: "models/pong/checkpoints"
+keep_checkpoints: 5
+
+# Model metadata
+model_class: "DQN"
+model_version: "1.0.0"
+description: "Pong DQN agent with Double Q-learning and Prioritized Experience Replay"
+
+# Hardware settings
+n_envs: 4
+n_steps: 4
+device: "auto"
 
 # Visualization
 viz_interval: 25000

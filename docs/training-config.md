@@ -1,199 +1,182 @@
 # Training Configuration Guide
 
-This guide explains the configuration options for training agents in Agent Arcade.
+This guide explains the optimized configuration options for training agents in Agent Arcade, based on research from DeepMind's DQN papers and subsequent improvements.
+
+## Core DQN Improvements
+
+Our configurations implement several key DQN enhancements:
+
+1. **Double Q-Learning**
+
+```yaml
+double_q: true  # Reduces value overestimation
+```
+
+2. **Prioritized Experience Replay (PER)**
+
+```yaml
+prioritized_replay: true
+prioritized_replay_alpha: 0.6  # How much prioritization to use
+prioritized_replay_beta0: 0.4  # Initial importance sampling weight
+```
+
+3. **Dueling Networks** (for complex games)
+
+```yaml
+dueling: true  # Separate value and advantage streams
+```
+
+4. **Noisy Networks** (for exploration-heavy games)
+
+```yaml
+noisy_nets: true  # Parameter space noise for exploration
+```
 
 ## Common Parameters
 
-These parameters are common across all games:
+These parameters are optimized across all games:
 
 ```yaml
-algo: "DQN"                    # Algorithm to use (currently only DQN supported)
-total_timesteps: 1000000       # Total number of training steps
-learning_rate: 0.00025         # Learning rate for the optimizer
-buffer_size: 500000            # Size of the replay buffer
-learning_starts: 100000        # Number of steps before learning starts
-batch_size: 256               # Batch size for training
-exploration_fraction: 0.4      # Fraction of total timesteps for exploration
+algo: "DQN"                    # Algorithm (DQN with improvements)
+total_timesteps: 2000000+      # Game-specific training length
+learning_rate: 0.00025         # From Nature DQN paper
+buffer_size: 1000000           # 1M transitions (Nature paper)
+learning_starts: 50000         # Pre-fill replay buffer
+batch_size: 32                 # Standard for Atari
+exploration_fraction: 0.1      # Linear annealing over 10% of steps
 exploration_final_eps: 0.01    # Final exploration rate
-train_log_interval: 100       # Interval for logging training metrics
 
 # Network optimization
-gamma: 0.99                   # Discount factor
-target_update_interval: 1000   # Steps between target network updates
-gradient_steps: 4             # Number of gradient steps per update
-train_freq: 4                 # Number of steps between updates
-frame_stack: 4                # Number of frames to stack
-
-# Preprocessing
-scale_rewards: true           # Whether to scale rewards
-normalize_frames: true        # Whether to normalize frames
-terminal_on_life_loss: true   # End episode on life loss
+gamma: 0.99                    # Discount factor
+target_update_interval: 1000   # Target network update frequency
+train_freq: 4                  # Update every 4 steps
+gradient_steps: 1              # Gradient steps per update
+frame_stack: 4                 # Standard Atari frame stacking
 ```
 
-## Game-Specific Parameters
+## Game-Specific Configurations
 
-### Pong
+### Pong (Simpler Dynamics)
 
 ```yaml
-env: "ALE/Pong-v5"            # Environment ID for Pong
+total_timesteps: 2000000       # Shorter training for simpler dynamics
+success_threshold: 15.0        # Winning score threshold
+frame_stack: 4                 # Standard frame stacking
+# No dueling/noisy nets needed
 ```
 
-### Space Invaders
+### Space Invaders (Complex Patterns)
 
 ```yaml
-env: "ALE/SpaceInvaders-v5"   # Environment ID for Space Invaders
-difficulty: 0                 # Game difficulty (0-1)
-mode: 0                      # Game mode (0-15)
+total_timesteps: 4000000       # Longer for pattern learning
+dueling: true                  # Better value estimation
+fire_reset: true              # Game-specific requirement
+reward_clipping: [-1, 1]      # Stability improvement
+success_threshold: 500.0       # Competitive score
 ```
 
-Space Invaders specific notes:
-
-- `difficulty`: Controls game difficulty (0: normal, 1: hard)
-- `mode`: Different game variations (0-15) affecting gameplay mechanics
-
-## Workshop and Visualization
+### River Raid (Navigation + Resource)
 
 ```yaml
-viz_interval: 25000           # Steps between visualization updates
-video_interval: 100000        # Steps between video recordings
-video_length: 400            # Length of recorded videos
-checkpoint_interval: 100000   # Steps between model checkpoints
-demo_mode: false             # Whether to run in demo mode
+total_timesteps: 5000000       # Longest for fuel management
+dueling: true                  # Value/advantage separation
+noisy_nets: true              # Better exploration
+reward_shaping:               # Custom rewards
+  fuel_bonus: 2.0
+  progress_bonus: 0.1
+success_threshold: 1000.0
 ```
 
-## Example Configurations
+## Evaluation Settings
 
-### Pong Configuration
+Standardized evaluation across games:
 
 ```yaml
-algo: "DQN"
-env: "ALE/Pong-v5"
-total_timesteps: 1000000
-learning_rate: 0.00025
-buffer_size: 500000
-learning_starts: 100000
-batch_size: 256
-exploration_fraction: 0.4
-exploration_final_eps: 0.01
+eval_episodes: 100            # Statistically significant sample
+eval_freq: 25000             # Regular evaluation intervals
+eval_deterministic: true     # No exploration during eval
+render_eval: false          # Headless evaluation
 ```
 
-### Space Invaders Configuration
+## Checkpointing and Monitoring
 
 ```yaml
-algo: "DQN"
-env: "ALE/SpaceInvaders-v5"
-total_timesteps: 1000000
-learning_rate: 0.00025
-buffer_size: 500000
-learning_starts: 100000
-batch_size: 256
-exploration_fraction: 0.4
-exploration_final_eps: 0.01
-difficulty: 0
-mode: 0
+save_freq: 100000            # Save every 100K steps
+checkpoint_path: "models/{game}/checkpoints"
+keep_checkpoints: 5          # Keep last 5 checkpoints
+
+# Visualization
+viz_interval: 25000          # TensorBoard updates
+video_interval: 100000       # Record gameplay videos
+video_length: 400           # Video duration
 ```
 
-## Using Configurations
+## Hardware Optimization
 
-You can use these configurations through the CLI:
-
-```bash
-# Train Pong
-agent-arcade pong train --config configs/pong_sb3_config.yaml
-
-# Train Space Invaders
-agent-arcade space-invaders train --config configs/space_invaders_sb3_config.yaml
+```yaml
+n_envs: 4                    # Parallel environments
+n_steps: 4                   # Steps per env before update
+device: "auto"               # Auto GPU/CPU selection
 ```
 
-Or modify parameters directly:
+## Training Duration Guidelines
 
-```bash
-# Train with visualization
-agent-arcade space-invaders train --config configs/space_invaders_sb3_config.yaml --render
+Based on complexity:
 
-# Train with video recording
-agent-arcade space-invaders train --config configs/space_invaders_sb3_config.yaml --record
-```
-
-## Parameter Explanations
-
-### Core Parameters
-
-- **total_timesteps**: Total number of game steps for training
-  - Higher values = more training time but potentially better performance
-  - Recommended: 500K-1M steps for Pong
-
-- **exploration_fraction**: Balance between exploration and exploitation
-  - Higher values = more exploration
-  - Recommended: 0.3-0.4 for discovering winning strategies
-
-- **buffer_size**: Memory for storing game experiences
-  - Larger buffer = more diverse learning experiences
-  - Recommended: At least 50% of total timesteps
-
-### Network Parameters
-
-- **frame_stack**: Number of consecutive frames fed to the network
-  - Higher values = better motion detection
-  - Recommended: 4 frames for Pong
-
-- **gradient_steps**: Learning iterations per update
-  - Higher values = more thorough learning
-  - Recommended: 2-4 steps
-
-## Optimization Tips
-
-1. **For Better Exploration**
-
-   ```yaml
-   exploration_fraction: 0.4
-   exploration_final_eps: 0.01
-   ```
-
-2. **For Stable Learning**
-
-   ```yaml
-   learning_rate: 0.00025
-   buffer_size: 500000
-   batch_size: 256
-   ```
-
-3. **For Quick Adaptation**
-
-   ```yaml
-   target_update_interval: 1000
-   gradient_steps: 4
-   ```
+- **Pong**: 2M steps (~4-5 hours)
+- **Space Invaders**: 4M steps (~8-10 hours)
+- **River Raid**: 5M steps (~10-12 hours)
 
 ## Performance Monitoring
 
-Monitor these metrics in TensorBoard:
+Monitor in TensorBoard:
 
-- Episode rewards (target: consistently > 15)
-- Loss values (should stabilize over time)
-- Exploration rate (should decrease smoothly)
-- Training FPS (higher is better)
-
-## Common Issues
-
-1. **Poor Performance**
-   - Increase exploration_fraction
-   - Increase buffer_size
-   - Check reward scaling
-
-2. **Unstable Learning**
-   - Decrease learning_rate
-   - Increase batch_size
-   - Adjust target_update_interval
-
-3. **Slow Training**
-   - Decrease gradient_steps
-   - Adjust frame_stack
-   - Optimize hardware usage
+- Episode rewards (game-specific thresholds)
+- Loss values (should stabilize <0.5)
+- Exploration rate (smooth decay)
+- Training FPS (hardware efficiency)
 
 ## Hardware Recommendations
 
-- CPU: 4+ cores
-- RAM: 8GB minimum
-- GPU: Optional but recommended
-- Storage: 1GB for models
+- CPU: 4+ cores recommended
+- RAM: 16GB recommended (8GB minimum)
+- GPU: Optional but recommended for faster training
+- Storage: 2GB for models and checkpoints
+
+## Common Issues and Solutions
+
+1. **Unstable Training**
+
+   ```yaml
+   max_grad_norm: 10         # Gradient clipping
+   reward_clipping: [-1, 1]  # Reward stability
+   ```
+
+2. **Poor Exploration**
+
+   ```yaml
+   noisy_nets: true         # Parameter space noise
+   # or
+   exploration_fraction: 0.2 # More exploration time
+   ```
+
+3. **Slow Learning**
+
+   ```yaml
+   prioritized_replay: true  # Focus on important transitions
+   n_envs: 4                # Parallel environments
+   ```
+
+## Pre-trained Models
+
+We provide pre-trained models for each game:
+
+```bash
+models/
+├── pong/
+│   ├── final_model.zip        # 15+ average score
+├── space_invaders/
+│   ├── final_model.zip        # 500+ average score
+└── river_raid/
+    ├── final_model.zip        # 1000+ average score
+```

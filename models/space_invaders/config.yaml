@@ -1,29 +1,58 @@
 algo: "DQN"
 env: "ALE/SpaceInvaders-v5"
-total_timesteps: 3000000  # Increased for better performance
+total_timesteps: 4000000  # Increased for complex dynamics
 learning_rate: 0.00025
-buffer_size: 500000
-learning_starts: 100000
-batch_size: 256
-exploration_fraction: 0.4
+buffer_size: 1000000
+learning_starts: 50000
+batch_size: 32
+exploration_fraction: 0.1
 exploration_final_eps: 0.01
-train_log_interval: 100
+train_freq: 4
+gradient_steps: 1
 
 # Network optimization
 gamma: 0.99
 target_update_interval: 1000
-gradient_steps: 4
-train_freq: 4
-frame_stack: 16
+frame_stack: 4
+double_q: true
+prioritized_replay: true
+prioritized_replay_alpha: 0.6
+prioritized_replay_beta0: 0.4
+dueling: true  # Use Dueling architecture for better value estimation
 
 # Preprocessing
 scale_rewards: true
 normalize_frames: true
 terminal_on_life_loss: true
+max_grad_norm: 10
+
+# Evaluation settings
+eval_episodes: 100
+eval_freq: 25000
+eval_deterministic: true
+render_eval: false
+success_threshold: 500.0  # Space Invaders specific
+
+# Checkpointing
+save_freq: 100000
+checkpoint_path: "models/space_invaders/checkpoints"
+keep_checkpoints: 5
+
+# Model metadata
+model_class: "DQN"
+model_version: "1.0.0"
+description: "Space Invaders DQN agent with Dueling architecture and PER"
+
+# Hardware settings
+n_envs: 4
+n_steps: 4
+device: "auto"
 
 # Game specific settings
 difficulty: 0
 mode: 0
+fire_reset: true  # Specific to Space Invaders
+reward_clipping: [-1, 1]  # Clip rewards for stability
 
 # Visualization
 viz_interval: 25000
@@ -35,12 +64,4 @@ demo_mode: false
 # Model architecture
 policy: "CnnPolicy"
 features_extractor: "NatureCNN"
-features_dim: 512
-
-# Advanced training options
-prioritized_replay: true
-alpha: 0.6
-beta0: 0.4
-dueling: true
-double_q: true
-max_grad_norm: 10 
+features_dim: 512 

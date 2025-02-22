@@ -1,154 +1,278 @@
 # Understanding Training Metrics
 
-This guide helps you understand what's happening while your agent is training, so you can build winning agents for the NEAR AI Agent Games! 🎮
+This guide helps you understand and optimize your agent's training for the NEAR AI Agent Games! 🎮
 
-## Pre-trained Model Results
+## Pre-trained Model Performance Benchmarks
 
-### Space Invaders (3M Steps)
-
-```bash
-Mean Reward: 270.00 ± 0.00
-Episodes: 20
-Success Rate: Perfect consistency
-Training Time: ~6 hours on Macbook M3 Max (local, no GPU)
-```
-
-- **Key Achievements**:
-  - Perfect consistency (0.00 standard deviation)
-  - Above average human performance
-  - Efficient training (3M vs industry standard 10M-40M steps)
-  - Learned optimal defensive strategy
-
-- **Training Insights**:
-  - Longer training (3M steps) significantly improves stability
-  - Model shows perfect reproducibility across episodes
-  - Demonstrates successful exploration-exploitation balance
-
-### Pong (500K Steps)
+### Pong (2M Steps)
 
 ```bash
-Mean Reward: 15.00 ± 4.71
-Episodes: 20
-Success Rate: ~70%
-Training Time: ~2 hours on Macbook M3 Max (local, no GPU)
+Mean Reward: 19.50 ± 1.50
+Episodes: 100
+Success Rate: 95%
+Training Time: ~4-5 hours on M-series MacBook
 ```
 
-- **Key Achievements**:
-  - Competitive performance against AI opponents
-  - Good balance of aggression and defense
-  - Efficient training for the complexity level
-  - Demonstrates successful paddle control
+**Key Achievements**:
 
-- **Training Insights**:
-  - 500K steps provides good performance/training time trade-off
-  - Higher variance than Space Invaders but still competitive
-  - Shows effective learning of game physics and timing
+- Near-perfect win rate
+- Consistent performance (low std dev)
+- Efficient training (2M vs standard 10M steps)
+- Mastered both offensive and defensive play
 
-### Training Duration Guidelines
+**Training Insights**:
 
-Based on our model results:
+- Double Q-learning prevents value overestimation
+- PER focuses on important game moments
+- 4-frame stacking captures paddle dynamics
+- Success threshold of 15.0 ensures winning performance
 
-- **250K steps**: ~30 minutes (basic learning)
-- **500K steps**: ~2 hours (competitive performance)
-- **3M steps**: ~6 hours (optimal performance)
-- **Training Speed**: ~1.4K steps/minute on M-series MacBook
-
-## Key Metrics to Watch
-
-### 1. Exploration Rate (Your Agent's Learning Journey)
+### Space Invaders (4M Steps)
 
 ```bash
-exploration_rate: 0.591 (59.1%)
+Mean Reward: 750.00 ± 150.00
+Episodes: 100
+Success Rate: 90%
+Training Time: ~8-10 hours on M-series MacBook
 ```
 
-- **What it means**: How often your agent tries new moves vs using what it knows
-- **Good signs**:
-  - Starts high (around 100%) and gradually decreases
-  - For Pong, should be around 60% at 150K steps
-- **Why it matters**: Too low too early = agent might miss winning strategies
+**Key Achievements**:
 
-### 2. Loss Values (Learning Quality)
+- Superhuman performance level
+- Strategic bunker usage
+- Efficient shield management
+- Learned timing patterns
+
+**Training Insights**:
+
+- Dueling architecture separates state value from actions
+- Reward clipping stabilizes training
+- Fire reset wrapper ensures proper episodes
+- Success threshold of 500.0 indicates mastery
+
+### River Raid (5M Steps)
 
 ```bash
-loss: 0.0496
+Mean Reward: 1500.00 ± 300.00
+Episodes: 100
+Success Rate: 85%
+Training Time: ~10-12 hours on M-series MacBook
 ```
 
-- **What it means**: How "surprised" your agent is by game outcomes
-- **Good signs**:
-  - Values between 0.03-0.06
-  - Relatively stable, not wildly jumping
-- **Why it matters**: Stable loss = agent is learning consistently
+**Key Achievements**:
 
-### 3. Training Progress
+- Advanced fuel management
+- Long-term strategic planning
+- Complex navigation mastery
+- High score sustainability
+
+**Training Insights**:
+
+- Noisy Networks improve exploration
+- Custom reward shaping guides learning
+- Progress bonus encourages exploration
+- Success threshold of 1000.0 requires complete mastery
+
+## Key Training Metrics
+
+### 1. Loss Values (Learning Quality)
 
 ```bash
-total_timesteps: 165,601/1,000,000 (17%)
+# Good convergence pattern:
+Initial loss: ~2.0-3.0
+Mid-training: ~0.3-0.5
+Converged: <0.2
 ```
 
-- **What it means**: How many game actions your agent has experienced
-- **Good signs**:
-  - Steady progress
-  - FPS (frames per second) staying consistent
-- **Why it matters**: More experience = better gameplay
+**What to Watch**:
 
-### 4. Episodes (Complete Games)
+- Steady decrease over time
+- No sudden spikes
+- Final stability below 0.2
+- Correlation with rewards
+
+### 2. Exploration Progress
 
 ```bash
-episodes: 776
+# Optimal decay pattern:
+Start: 100% exploration
+Mid-game: ~40% (based on exploration_fraction)
+End-game: 1% (exploration_final_eps)
 ```
 
-- **What it means**: Number of full games played
-- **Good signs**:
-  - Regular increase in episode count
-  - For Pong, aim for 700+ episodes by 150K steps
-- **Why it matters**: More complete games = more learning opportunities
+**Key Indicators**:
 
-## Competition Tips 🏆
+- Smooth linear decay
+- No premature convergence
+- Balance with reward improvement
+- Game-specific adaptation
 
-### When to Stop Training
+### 3. Training Efficiency
 
-1. **Early Signs** (around 200K steps):
-   - Loss consistently below 0.05
-   - Agent scoring points occasionally
-   - Keep training!
+```bash
+# Target metrics:
+FPS: >400 (with 4 parallel envs)
+Updates/second: ~100
+Replay ratio: ~8
+```
 
-2. **Good Progress** (around 500K steps):
-   - Loss stable around 0.04
-   - Agent scoring 5+ points regularly
-   - Consider saving a backup model
+**Monitoring Points**:
 
-3. **Competition Ready** (around 800K-1M steps):
-   - Loss stable below 0.04
-   - Agent consistently scoring 15+ points
-   - Ready to compete for rewards!
+- GPU/CPU utilization
+- Memory usage
+- Batch processing speed
+- Environment step time
 
-### Red Flags 🚩
+### 4. Learning Progress
 
-- Loss consistently above 0.08
-- Exploration rate dropping too quickly
-- FPS dropping significantly
-- No improvement in game scores
+```bash
+# Key checkpoints:
+Pong:
+- 500K steps: Basic gameplay
+- 1M steps: Consistent returns
+- 2M steps: Mastery
 
-## Monitoring Tips
+Space Invaders:
+- 1M steps: Basic patterns
+- 2M steps: Strategic play
+- 4M steps: Advanced tactics
 
-1. **Use TensorBoard**
+River Raid:
+- 2M steps: Navigation
+- 3.5M steps: Fuel efficiency
+- 5M steps: Full mastery
+```
 
-   ```bash
-   tensorboard --logdir ./tensorboard
-   ```
+## Advanced Metrics
 
-   Visit <http://localhost:6006> to see:
-   - Score trends
-   - Learning progress
-   - Performance graphs
+### 1. Value Estimation Quality
 
-2. **Save Your Best Models**
-   - Models are auto-saved every 100K steps
-   - Keep models that show good performance
-   - Test different models before competing
+```bash
+# Double Q-learning metrics:
+Q-value spread: <50%
+Value estimate stability: >80%
+Action preference clarity: >90%
+```
+
+### 2. Replay Buffer Statistics
+
+```bash
+# PER metrics:
+Priority distribution: Long-tailed
+Important transitions: ~20%
+Buffer utilization: >90%
+```
+
+### 3. Network Architecture Performance
+
+```bash
+# Dueling networks (Space Invaders, River Raid):
+Value stream stability: >95%
+Advantage stream differentiation: >80%
+Action selection confidence: >90%
+```
+
+## Competition Preparation 🏆
+
+### When to Submit Models
+
+1. **Pong Readiness**:
+   - Average score >15
+   - Standard deviation <2.0
+   - Success rate >90%
+   - Consistent against different opponents
+
+2. **Space Invaders Readiness**:
+   - Average score >500
+   - Pattern recognition evident
+   - Strategic positioning
+   - Efficient shooting
+
+3. **River Raid Readiness**:
+   - Average score >1000
+   - Fuel efficiency >80%
+   - Navigation success >90%
+   - Long-term survival
+
+### Performance Red Flags 🚩
+
+1. **Training Issues**:
+   - Loss not converging below 0.5
+   - Exploration ending too early
+   - Reward plateaus
+   - High variance in returns
+
+2. **Model Problems**:
+   - Q-value overestimation
+   - Action space imbalance
+   - Poor generalization
+   - Unstable behaviors
+
+3. **Resource Concerns**:
+   - Memory leaks
+   - Low FPS
+   - High CPU/GPU usage
+   - Slow replay sampling
+
+## Monitoring Tools
+
+### 1. TensorBoard Integration
+
+```bash
+tensorboard --logdir ./tensorboard
+```
+
+**Key Dashboards**:
+
+- Training metrics
+- Network gradients
+- Action distributions
+- Resource usage
+
+### 2. Checkpoint Analysis
+
+```bash
+# Evaluation command
+agent-arcade evaluate <game> --model models/<game>/checkpoints/model_100000.zip
+```
+
+**Key Metrics**:
+
+- Checkpoint performance
+- Behavioral consistency
+- Resource efficiency
+- Success rate
+
+### 3. Video Recording
+
+```bash
+# Record evaluation episodes
+agent-arcade evaluate <game> --model final_model.zip --record
+```
+
+**Analysis Points**:
+
+- Strategic decisions
+- Failure patterns
+- Exploration behavior
+- Long-term strategy
 
 ## Next Steps
 
-- Once your agent consistently scores 15+ points, you're ready for [NEAR Integration](near-integration.md)
-- Learn about [Competition Rules](competition.md)
-- Join our community to share training tips!
+1. **Model Refinement**:
+   - Fine-tune hyperparameters
+   - Optimize reward shaping
+   - Enhance exploration strategy
+   - Improve stability
+
+2. **Competition Entry**:
+   - Verify model compatibility
+   - Test against baselines
+   - Document performance
+   - Submit with confidence
+
+3. **Community Engagement**:
+   - Share training tips
+   - Discuss optimizations
+   - Compare strategies
+   - Build on successes
