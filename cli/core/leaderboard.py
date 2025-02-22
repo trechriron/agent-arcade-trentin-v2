@@ -9,8 +9,12 @@ from loguru import logger
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
-# Define leaderboard directory
-LEADERBOARD_DIR = os.path.join(os.path.expanduser("~"), ".agent-arcade", "leaderboards")
+def get_leaderboard_dir() -> str:
+    """Get the leaderboard directory path."""
+    return os.getenv(
+        "AGENT_ARCADE_LEADERBOARD_DIR",
+        os.path.join(os.path.expanduser("~"), ".agent-arcade", "leaderboards")
+    )
 
 @dataclass
 class LeaderboardEntry:
@@ -37,17 +41,25 @@ class GameLeaderboard:
     
     def _load_entries(self):
         """Load entries from disk."""
-        os.makedirs(LEADERBOARD_DIR, exist_ok=True)
-        path = os.path.join(LEADERBOARD_DIR, f"{self.game_name}.json")
+        leaderboard_dir = get_leaderboard_dir()
+        os.makedirs(leaderboard_dir, exist_ok=True)
+        path = os.path.join(leaderboard_dir, f"{self.game_name}.json")
         if os.path.exists(path):
-            with open(path, 'r') as f:
-                data = json.load(f)
-                self.entries = [LeaderboardEntry(**entry) for entry in data]
+            try:
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                    self.entries = [LeaderboardEntry(**entry) for entry in data]
+            except (json.JSONDecodeError, FileNotFoundError):
+                # If file is corrupted or missing, start with empty entries
+                self.entries = []
+        else:
+            self.entries = []
     
     def _save_entries(self):
         """Save entries to disk."""
-        os.makedirs(LEADERBOARD_DIR, exist_ok=True)
-        path = os.path.join(LEADERBOARD_DIR, f"{self.game_name}.json")
+        leaderboard_dir = get_leaderboard_dir()
+        os.makedirs(leaderboard_dir, exist_ok=True)
+        path = os.path.join(leaderboard_dir, f"{self.game_name}.json")
         with open(path, 'w') as f:
             json.dump([asdict(entry) for entry in self.entries], f)
     
@@ -84,13 +96,20 @@ class LeaderboardManager:
     
     def __init__(self):
         """Initialize leaderboard manager."""
-        self.leaderboards: Dict[str, GameLeaderboard] = {}
+        self._leaderboards: Dict[str, GameLeaderboard] = {}
     
     def get_leaderboard(self, game_name: str) -> GameLeaderboard:
-        """Get or create a game leaderboard."""
-        if game_name not in self.leaderboards:
-            self.leaderboards[game_name] = GameLeaderboard(game_name)
-        return self.leaderboards[game_name]
+        """Get leaderboard for a game.
+        
+        Args:
+            game_name: Game identifier
+            
+        Returns:
+            Game leaderboard
+        """
+        if game_name not in self._leaderboards:
+            self._leaderboards[game_name] = GameLeaderboard(game_name)
+        return self._leaderboards[game_name]
     
     def record_score(self, game_name: str, account_id: str, score: float, 
                     success_rate: float, episodes: int, model_path: str = ""):
@@ -113,7 +132,7 @@ class LeaderboardManager:
             'games': {}
         }
         
-        for game_name, board in self.leaderboards.items():
+        for game_name, board in self._leaderboards.items():
             game_players = {e.account_id for e in board.entries}
             game_scores = [e.score for e in board.entries]
             

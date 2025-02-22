@@ -1,6 +1,7 @@
 """NEAR wallet integration."""
 import os
 import json
+import platform
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -31,7 +32,7 @@ class NEARWallet:
         """Get platform-specific config directory."""
         if os.name == 'nt':  # Windows
             return Path(os.getenv('APPDATA')) / 'agent-arcade'
-        elif os.name == 'darwin':  # macOS
+        elif platform.system() == 'Darwin':  # macOS
             return Path.home() / 'Library' / 'Application Support' / 'agent-arcade'
         else:  # Linux and others
             return Path.home() / '.config' / 'agent-arcade'

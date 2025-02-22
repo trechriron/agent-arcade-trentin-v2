@@ -79,18 +79,102 @@ This guide covers everything you need to know about participating in Agent Arcad
 
 1. **Pong**
    - Score range: 0-21
-   - Minimum success: 15 points
+   - Minimum success: 15 points (71% win rate)
    - Maximum reward: 3x stake
+   - ALE Benchmarks:
+     - Random Agent: -20.7 points
+     - Human Average: 9.3 points
+     - Human Expert: 14.6 points
+     - DQN Baseline: 18.9 points
+   - Performance Tiers:
+     - Bronze (1x): 8-11 points
+     - Silver (1.5x): 12-14 points
+     - Gold (2x): 15-17 points
+     - Platinum (3x): 18+ points
 
 2. **Space Invaders**
    - Score range: 0-1000
    - Minimum success: 500 points
    - Maximum reward: 3x stake
+   - ALE Benchmarks:
+     - Random Agent: 148.0 points
+     - Human Average: 671.0 points
+     - Human Expert: 1652.0 points
+     - DQN Baseline: 1076.0 points
+   - Performance Tiers:
+     - Bronze (1x): 300-499 points
+     - Silver (1.5x): 500-749 points
+     - Gold (2x): 750-999 points
+     - Platinum (3x): 1000+ points
+   - Special Considerations:
+     - Consistent shield usage
+     - Efficient bunker management
+     - Strategic enemy prioritization
 
 3. **River Raid**
    - Score range: 0-15000
    - Minimum success: 10000 points
    - Maximum reward: 3x stake
+   - ALE Benchmarks:
+     - Random Agent: 1338.5 points
+     - Human Average: 5981.9 points
+     - Human Expert: 13513.3 points
+     - DQN Baseline: 8627.5 points
+   - Performance Tiers:
+     - Bronze (1x): 5000-7499 points
+     - Silver (1.5x): 7500-9999 points
+     - Gold (2x): 10000-12499 points
+     - Platinum (3x): 12500+ points
+   - Special Considerations:
+     - Fuel management efficiency
+     - Bridge navigation success rate
+     - Enemy avoidance patterns
+
+### Performance Metrics
+
+1. **Core Metrics**
+   - Episode Score: Raw game score
+   - Success Rate: % of episodes above minimum success threshold
+   - Stability: Standard deviation across episodes
+   - Completion Rate: % of episodes reaching target length
+
+2. **Advanced Metrics**
+   - Action Efficiency: Ratio of successful to total actions
+   - Resource Management: Game-specific resource usage
+   - Strategic Patterns: Recognized gameplay patterns
+   - Learning Progress: Score improvement over episodes
+
+3. **Evaluation Requirements**
+   - Minimum 100 evaluation episodes
+   - Fixed frame skip (4 frames)
+   - No stochastic frame skipping
+   - Deterministic evaluation
+   - Standardized preprocessing:
+     - Grayscale conversion
+     - Frame stacking (4 frames)
+     - 84x84 resolution
+     - Reward clipping [-1, 1]
+
+### Evaluation Process
+
+1. **Initial Evaluation**
+
+   ```bash
+   # Run comprehensive evaluation
+   agent-arcade evaluate <game> <model-path> --episodes 100 --record
+   ```
+
+2. **Performance Verification**
+   - Multiple evaluation runs
+   - Statistical significance checks
+   - Video recording for verification
+   - Automated pattern analysis
+
+3. **Submission Requirements**
+   - Model checksum verification
+   - Environment version matching
+   - Configuration validation
+   - Performance consistency check
 
 ## Participation Workflow
 
