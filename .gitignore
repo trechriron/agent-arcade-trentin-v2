@@ -37,6 +37,7 @@ logs/
 agent_arcade.egg-info/
 .DS_Store
 .coverage
+.cursor
 
 # --------------------------
 # Rust and Cargo artifacts
