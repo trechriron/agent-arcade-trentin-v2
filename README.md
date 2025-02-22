@@ -86,7 +86,7 @@ If you encounter issues during installation:
    pip uninstall -y ale-py shimmy gymnasium
    
    # Install dependencies in correct order
-   pip install "ale-py==0.10.2"
+   pip install "ale-py==0.10.1"
    pip install "shimmy[atari]==0.2.1"
    pip install "gymnasium[atari]==0.28.1"
    ```

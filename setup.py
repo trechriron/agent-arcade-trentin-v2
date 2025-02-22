@@ -6,7 +6,7 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        "ale-py>=0.10.2",
+        "ale-py>=0.10.1",
         "shimmy[atari]>=2.0.0",
         "gymnasium[atari]>=0.29.1",
         "stable-baselines3[extra]>=2.5.0",
