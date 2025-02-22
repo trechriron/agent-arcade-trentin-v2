@@ -140,12 +140,122 @@ if ! AutoROM --accept-license; then
     exit 1
 fi
 
+# Verify AutoROM installation
+echo "🔍 Verifying AutoROM installation..."
+python3 -c "
+import os
+from pathlib import Path
+import AutoROM
+
+autorom_path = Path(AutoROM.__file__).parent / 'roms'
+if not autorom_path.exists():
+    print(f'❌ AutoROM directory not found: {autorom_path}')
+    exit(1)
+
+rom_files = list(autorom_path.glob('*.bin'))
+if not rom_files:
+    print(f'❌ No ROM files found in {autorom_path}')
+    exit(1)
+
+print(f'✅ Found {len(rom_files)} ROMs in {autorom_path}')
+"
+
+# Copy ROMs from AutoROM to ALE-py
+echo "📂 Copying ROMs to ALE-py directory..."
+python3 -c "
+import os
+import shutil
+from pathlib import Path
+import AutoROM
+import ale_py
+
+autorom_path = Path(AutoROM.__file__).parent / 'roms'
+ale_path = Path(ale_py.__file__).parent / 'roms'
+
+# Create ALE-py roms directory if it doesn't exist
+ale_path.mkdir(parents=True, exist_ok=True)
+
+# Copy all ROMs
+for rom in autorom_path.glob('*.bin'):
+    target = ale_path / rom.name
+    print(f'Copying {rom.name} to {target}')
+    shutil.copy2(rom, target)
+
+print(f'✅ Copied ROMs from {autorom_path} to {ale_path}')
+"
+
+# Verify ROM paths and permissions
+echo "🔍 Verifying ROM paths and permissions..."
+python3 -c "
+import os
+from pathlib import Path
+import ale_py
+
+ale_path = Path(ale_py.__file__).parent / 'roms'
+print(f'ALE ROM path: {ale_path}')
+
+if not ale_path.exists():
+    print(f'❌ ALE ROM directory not found')
+    exit(1)
+
+rom_files = list(ale_path.glob('*.bin'))
+if not rom_files:
+    print(f'❌ No ROM files found in ALE directory')
+    exit(1)
+
+print(f'Found {len(rom_files)} ROMs:')
+for rom in rom_files:
+    print(f'  - {rom.name} ({oct(rom.stat().st_mode)[-3:]})')
+"
+
+# Standardize ROM names
+echo "📝 Standardizing ROM names..."
+python3 -c "
+import os
+from pathlib import Path
+import ale_py
+
+ale_path = Path(ale_py.__file__).parent / 'roms'
+name_mapping = {
+    'pong.bin': 'pong.bin',
+    'space_invaders.bin': 'space_invaders.bin',
+    # Add more mappings if needed
+}
+
+for rom in ale_path.glob('*.bin'):
+    lower_name = rom.name.lower()
+    if lower_name in name_mapping and lower_name != rom.name:
+        target = rom.parent / name_mapping[lower_name]
+        print(f'Renaming {rom.name} to {target.name}')
+        rom.rename(target)
+
+# Ensure proper permissions
+for rom in ale_path.glob('*.bin'):
+    rom.chmod(0o644)
+    print(f'Set permissions for {rom.name}')
+"
+
 # Verify ALE interface with environment registration
 echo "🎮 Verifying ALE interface..."
 python3 -c "
 import gymnasium as gym
 import ale_py
 from ale_py import ALEInterface
+from pathlib import Path
+import sys
+
+# Check ROM paths
+ale_rom_path = Path(ale_py.__file__).parent / 'roms'
+required_roms = ['pong.bin', 'space_invaders.bin']
+
+print(f'Checking ROMs in: {ale_rom_path}')
+
+missing_roms = [rom for rom in required_roms if not (ale_rom_path / rom).exists()]
+if missing_roms:
+    print('❌ Missing required ROMs in ALE-py directory:')
+    for rom in missing_roms:
+        print(f'  - {rom}')
+    sys.exit(1)
 
 # Register environments
 gym.register_envs(ale_py)
@@ -155,13 +265,22 @@ print(f'A.L.E: Arcade Learning Environment (version {ale_py.__version__})')
 print('✅ Environment registration successful')
 
 # Test environment creation with proper wrappers
+print('Testing Pong environment...')
 env = gym.make('ALE/Pong-v5', render_mode='rgb_array')
 env = gym.wrappers.ResizeObservation(env, (84, 84))
 env = gym.wrappers.GrayscaleObservation(env)
 env = gym.wrappers.FrameStackObservation(env, 16)
-print('✅ Environment wrappers verified')
+
+# Test a step to verify everything works
+obs, _ = env.reset()
+action = env.action_space.sample()
+obs, reward, terminated, truncated, info = env.step(action)
+env.close()
+
+print('✅ Environment test successful')
 " || {
     echo "❌ ALE interface verification failed."
+    echo "Please check the error message above and try again."
     exit 1
 }
 
