@@ -134,6 +134,8 @@ tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
 
 ### Evaluating Agents
 
+> **Important**: Models expect 16 frames stacked (shape: 16, 84, 84) for observations. Ensure your model and environment configurations match.
+
 ```bash
 # Evaluate Pong agent
 agent-arcade evaluate pong models/pong_final.zip --episodes 10 --render
@@ -174,7 +176,7 @@ agent-arcade leaderboard stats
 
 - Custom CNN feature extractor (3 convolutional layers)
 - Dual 512-unit fully connected layers
-- Frame stacking (4 frames) for temporal information
+- Frame stacking (16 frames) for temporal information
 - Optimized for Apple Silicon (MPS) and CPU performance
 
 ### Training Parameters
@@ -187,7 +189,7 @@ learning_starts: 50000
 batch_size: 256
 exploration_fraction: 0.2
 target_update_interval: 2000
-frame_stack: 4
+frame_stack: 16
 ```
 
 ### Performance Optimizations
