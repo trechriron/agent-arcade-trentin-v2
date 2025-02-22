@@ -8,7 +8,7 @@ Before you begin, ensure your system meets these requirements:
 
 - **Python**: Version 3.8 - 3.12 (3.13 not yet supported)
 - **Operating System**: Linux, macOS, or WSL2 on Windows
-- **Node.js & npm**: Version 14 or higher (for NEAR CLI)
+- **Node.js & npm**: Version 16 or higher (for NEAR CLI)
 - **Storage**: At least 2GB free space
 - **Memory**: At least 4GB RAM recommended
 

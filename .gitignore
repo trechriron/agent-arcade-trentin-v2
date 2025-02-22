@@ -42,3 +42,17 @@ logs/
 agent_arcade.egg-info/
 .DS_Store
 near.md
+
+# --------------------------
+# Rust and Cargo artifacts
+# --------------------------
+**/target/
+contract/*.wasm
+
+# --------------------------
+# NEAR CLI generated artifacts
+# --------------------------
+neardev/
+
+# Optionally ignore Node modules (if using Node.js for frontend or tooling)
+node_modules/
