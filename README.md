@@ -136,10 +136,10 @@ tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
 
 ```bash
 # Evaluate Pong agent
-agent-arcade evaluate pong --model models/pong_final.zip --episodes 10 --render
+agent-arcade evaluate pong models/pong_final.zip --episodes 10 --render
 
 # Evaluate Space Invaders agent
-agent-arcade evaluate space-invaders --model models/space_invaders_optimized/final_model.zip --episodes 5 --render --record
+agent-arcade evaluate space_invaders models/space_invaders_final.zip --episodes 5 --render
 
 # View evaluation metrics and competition recommendations
 agent-arcade stats [game] --model [model_path]
