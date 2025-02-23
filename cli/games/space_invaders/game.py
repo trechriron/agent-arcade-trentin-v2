@@ -113,13 +113,13 @@ class SpaceInvadersGame(GameInterface):
         env = FireResetEnv(env)  # Space Invaders requires FIRE to start
         env = ClipRewardEnv(env)
         
-        # Standard observation preprocessing to match SB3 Atari preprocessing
+        # Standard observation preprocessing to match ALE documentation
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)  # Keep channel dim for stacking
         env = ScaleObservation(env)  # Scale to [0, 1]
         
         # Debug observation space
-        logger.debug(f"Single env observation space: {env.observation_space}")
+        logger.debug(f"Single env observation space before vectorization: {env.observation_space}")
         return env
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
@@ -219,16 +219,22 @@ class SpaceInvadersGame(GameInterface):
             
             while not done:
                 action, _ = model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, _ = env.step(action)
+                obs, reward, terminated, truncated, info = env.step(action)
                 episode_score += reward[0]
                 episode_length += 1
                 done = terminated[0] or truncated[0]
+                
+                # Track success using info dict for consistency with evaluation.py
+                if isinstance(info, (list, tuple)):
+                    info = info[0]  # Get first env's info
+                if isinstance(info, dict) and info.get("is_success", False):
+                    successes += 1
+                elif episode_score > 100:  # Fallback success criteria
+                    successes += 1
             
             total_score += episode_score
             episode_lengths.append(episode_length)
             best_score = max(best_score, episode_score)
-            if episode_score > 100:  # Consider scoring over 100 as success
-                successes += 1
             
             logger.info(f"Episode {episode + 1}/{episodes} - Score: {episode_score:.2f}")
         
