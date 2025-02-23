@@ -61,11 +61,11 @@ class PongGame(GameInterface):
         
     @property
     def version(self) -> str:
-        return "1.0.0"
+        return "2.0.0"
         
     @property
     def score_range(self) -> tuple[float, float]:
-        return (-21, 21)  # Pong scores range from -21 to 21 (lose vs win)
+        return (-21, 21)  # Pong scores range from -21 to 21
         
     def get_score_range(self) -> tuple[float, float]:
         """Get valid score range for the game."""
@@ -115,7 +115,7 @@ class PongGame(GameInterface):
         # Standard observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayscaleObservation(env)
-        env = gym.wrappers.FrameStackObservation(env, 4)
+        env = gym.wrappers.FrameStackObservation(env, config.frame_stack)
         
         return env
     
@@ -166,7 +166,7 @@ class PongGame(GameInterface):
         )
         
         # Save the model
-        model_path = Path(f"models/{self.name}_final.zip")
+        model_path = Path(f"models/{self.name}/baseline/final_model.zip")
         model_path.parent.mkdir(parents=True, exist_ok=True)
         model.save(str(model_path))
         logger.info(f"Model saved to {model_path}")
