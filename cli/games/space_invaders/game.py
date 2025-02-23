@@ -121,9 +121,7 @@ class SpaceInvadersGame(GameInterface):
         
         # Create vectorized environment with frame stacking
         env = DummyVecEnv([make_single_env])
-        
-        # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
-        env = VecFrameStack(env, n_stack=4, channels_order='first')
+        env = VecFrameStack(env, n_stack=4, channels_order='last')
         
         return env
     
@@ -132,7 +130,7 @@ class SpaceInvadersGame(GameInterface):
         config = self.load_config(config_path)
         
         # Create vectorized environment with parallel envs
-        env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(16)])
+        env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(8)])
         
         # Create and train the model with optimized policy network
         model = DQN(
