@@ -111,7 +111,7 @@ class SpaceInvadersGame(GameInterface):
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
         env = ScaleObservation(env)  # Scale to [0,1]
-        env = gym.wrappers.FrameStack(env, 4)
+        env = gym.wrappers.FrameStackObservation(env, config.frame_stack if config else 16)
         
         # Add video recording if not rendering
         if not render:
