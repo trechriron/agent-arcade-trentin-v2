@@ -84,12 +84,12 @@ class SpaceInvadersGame(GameInterface):
         return GameConfig(
             total_timesteps=5_000_000,    # Extended training for better strategies
             learning_rate=0.00025,        # Standard DQN learning rate
-            buffer_size=1_000_000,        # Large buffer for diverse experiences
-            learning_starts=100_000,      # Substantial exploration period
-            batch_size=2048,              # Large batches for GPU efficiency
+            buffer_size=100_000,          # Reduced for memory efficiency
+            learning_starts=10_000,       # Adjusted for smaller buffer
+            batch_size=512,               # Reduced for memory efficiency
             exploration_fraction=0.2,      # More exploration for complex strategies
             target_update_interval=2000,   # Less frequent updates for stability
-            frame_stack=16,               # Increased for better temporal info
+            frame_stack=4,                # Standard Atari frame stack
             policy="CnnPolicy",
             tensorboard_log=True,
             log_interval=100              # Frequent logging
@@ -134,51 +134,9 @@ class SpaceInvadersGame(GameInterface):
         env = DummyVecEnv([make_env for _ in range(8)])
         
         # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
-        env = VecFrameStack(env, n_stack=config.frame_stack, channels_order='last')
+        env = VecFrameStack(env, n_stack=4, channels_order='first')  # Use 4 frames instead of 16 for memory efficiency
         
-        # Transpose to get (n_envs, n_stack, h, w)
-        from stable_baselines3.common.vec_env import VecEnvWrapper
-        
-        class TransposeVecObs(VecEnvWrapper):
-            """Transpose observation for compatibility with SB3."""
-            
-            def __init__(self, venv):
-                super().__init__(venv)
-                obs_shape = self.observation_space.shape
-                
-                # VecEnv always has batch dim first
-                # Input: (n_envs, h, w, n_stack)
-                # Output: (n_envs, n_stack, h, w)
-                self.observation_space = gym.spaces.Box(
-                    low=0, high=1,
-                    shape=(obs_shape[0], obs_shape[-1], obs_shape[1], obs_shape[2]),
-                    dtype=np.float32
-                )
-            
-            def reset(self):
-                obs = self.venv.reset()
-                if isinstance(obs, tuple):
-                    obs, info = obs
-                    return self._transpose_obs(obs), info
-                return self._transpose_obs(obs), {}
-            
-            def step_wait(self):
-                result = self.venv.step_wait()
-                if len(result) == 4:
-                    # Old gym API: obs, reward, done, info
-                    obs, reward, done, info = result
-                    return self._transpose_obs(obs), reward, done, False, info
-                else:
-                    # New gym API: obs, reward, terminated, truncated, info
-                    obs, reward, terminated, truncated, info = result
-                    return self._transpose_obs(obs), reward, terminated, truncated, info
-            
-            def _transpose_obs(self, obs):
-                return np.transpose(obs, (0, 3, 1, 2))
-        
-        env = TransposeVecObs(env)
-        
-        # Debug observation space
+        # Debug final observation space
         logger.debug(f"Final observation space: {env.observation_space}")
         
         # Create and train the model with optimized policy network
@@ -186,15 +144,15 @@ class SpaceInvadersGame(GameInterface):
             "CnnPolicy",
             env,
             learning_rate=config.learning_rate,
-            buffer_size=config.buffer_size,
+            buffer_size=100_000,  # Reduced buffer size for memory efficiency
             learning_starts=config.learning_starts,
-            batch_size=config.batch_size,
+            batch_size=512,  # Reduced batch size for memory efficiency
             exploration_fraction=config.exploration_fraction,
             target_update_interval=config.target_update_interval,
             tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
                 "net_arch": [512, 512],
-                "normalize_images": True,  # Enable normalization since we're using proper shape
+                "normalize_images": True,
                 "optimizer_class": torch.optim.Adam,
                 "optimizer_kwargs": {
                     "eps": 1e-5,
