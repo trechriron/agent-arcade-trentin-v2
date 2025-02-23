@@ -52,7 +52,7 @@ class RiverraidGame(GameInterface):
         
     @property
     def env_id(self) -> str:
-        return "ALE/RiverRaid-v5"  # Latest ALE version
+        return "ALE/Riverraid-v5"  # Latest ALE version
         
     @property
     def description(self) -> str:
