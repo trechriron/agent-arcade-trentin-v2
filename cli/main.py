@@ -40,36 +40,61 @@ def wallet_cmd():
     pass
 
 @wallet_cmd.command()
-@click.option('--network', default='testnet', help='NEAR network to use')
-@click.option('--account-id', help='Optional specific account ID')
-def login(network: str, account_id: Optional[str]):
-    """Log in to NEAR wallet using web browser."""
+@click.option('--account-id', help='Optional specific account ID to use')
+def login(account_id: Optional[str]):
+    """Log in to NEAR wallet using web browser.
+    
+    This command will:
+    1. Open your browser to authenticate with NEAR wallet
+    2. Create a new account if you don't have one
+    3. Store your credentials locally for future use
+    
+    The web wallet will guide you through:
+    - Creating a new account if needed
+    - Granting access to your account
+    - Generating and storing access keys
+    """
     try:
-        wallet.config.network = network
         success = wallet.login(account_id)
         if not success:
-            logger.error("Login failed. Please try again.")
+            logger.error("\nLogin failed. Please ensure:")
+            logger.error("1. You have NEAR CLI installed (npm install -g near-cli)")
+            logger.error("2. You completed the authentication in your browser")
+            logger.error("3. You have a valid NEAR account")
+            logger.error("\nTo create a new account:")
+            logger.error("1. Visit https://wallet.near.org")
+            logger.error("2. Click 'Create Account'")
+            logger.error("3. Follow the instructions to set up your account")
+            logger.error("\nThen try logging in again with:")
+            logger.error("  agent-arcade wallet-cmd login")
     except Exception as e:
         logger.error(f"Login failed: {e}")
 
 @wallet_cmd.command()
 def logout():
     """Log out from NEAR wallet."""
-    wallet.logout()
-    logger.info("Successfully logged out")
+    try:
+        wallet.logout()
+    except Exception as e:
+        logger.error(f"Logout failed: {e}")
 
 @wallet_cmd.command()
 def status():
-    """Check wallet login status."""
-    if wallet.is_logged_in():
-        logger.info(f"Logged in as {wallet.config.account_id} on {wallet.config.network}")
-        balance = wallet.get_balance()
-        if balance is not None:
-            logger.info(f"Balance: {balance} NEAR")
+    """Check wallet login status and balance."""
+    try:
+        if wallet.is_logged_in():
+            logger.info(f"Logged in as {wallet.config.account_id} on {wallet.config.network}")
+            balance = wallet.get_balance()
+            if balance is not None:
+                logger.info(f"Balance: {balance:.2f} NEAR")
+            else:
+                logger.info("Balance: Not available (use 'near state' to check)")
         else:
-            logger.error("Failed to fetch balance")
-    else:
-        logger.info("Not logged in")
+            logger.info("Not logged in")
+            logger.info("\nTo log in, run:")
+            logger.info("  agent-arcade wallet-cmd login")
+    except Exception as e:
+        logger.error(f"Failed to check status: {e}")
 
 @cli.group()
 def leaderboard():
