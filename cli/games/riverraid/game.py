@@ -13,6 +13,7 @@ from stable_baselines3.common.atari_wrappers import (
 )
 from loguru import logger
 import numpy as np
+import torch
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback
 
@@ -76,17 +77,17 @@ class RiverraidGame(GameInterface):
     def get_default_config(self) -> GameConfig:
         """Get default configuration for the game."""
         return GameConfig(
-            total_timesteps=2_000_000,  # Longer training for complex game
-            learning_rate=0.0001,       # Lower learning rate for stability
-            buffer_size=200_000,        # Reduced but still sufficient for complexity
-            learning_starts=20_000,     # Faster start to learning
-            batch_size=128,             # Optimized for M3 Max
-            exploration_fraction=0.15,   # Balanced exploration
-            target_update_interval=1000, # More frequent updates
-            frame_stack=4,              # Standard frame stack
+            total_timesteps=10_000_000,   # Extended training for complex strategies
+            learning_rate=0.00025,        # Standard DQN learning rate
+            buffer_size=2_000_000,        # Large buffer for diverse experiences
+            learning_starts=200_000,      # Substantial exploration period
+            batch_size=2048,              # Large batches for GPU efficiency
+            exploration_fraction=0.2,      # More exploration for complex strategies
+            target_update_interval=2000,   # Less frequent updates for stability
+            frame_stack=16,               # Increased for better temporal info
             policy="CnnPolicy",
             tensorboard_log=True,
-            log_interval=100            # Frequent logging
+            log_interval=100              # Frequent logging
         )
     
     def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
@@ -119,10 +120,10 @@ class RiverraidGame(GameInterface):
         """Train a River Raid agent."""
         config = self.load_config(config_path)
         
-        # Create vectorized environment
-        env = DummyVecEnv([lambda: self._make_env(render, config)])
+        # Create vectorized environment with parallel envs
+        env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(16)])
         
-        # Create and train the model with balanced policy network
+        # Create and train the model with optimized policy network
         model = DQN(
             "CnnPolicy",
             env,
@@ -134,12 +135,20 @@ class RiverraidGame(GameInterface):
             target_update_interval=config.target_update_interval,
             tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
-                "net_arch": [512, 512],  # Keep full size for complex game
-                "normalize_images": True  # Keep normalization for stability
+                "net_arch": [2048, 1024],  # Larger network for complex patterns
+                "normalize_images": True,   # Input normalization
+                "optimizer_class": torch.optim.Adam,
+                "optimizer_kwargs": {
+                    "eps": 1e-5,
+                    "weight_decay": 1e-6
+                }
             },
-            train_freq=2,  # Balance between speed and learning (every 2 steps)
-            gradient_steps=2,  # Two gradient steps for better learning
-            verbose=1
+            train_freq=(32, "step"),      # Update every 32 steps
+            gradient_steps=8,             # Multiple gradient steps
+            learning_starts=200000,       # Extended exploration
+            target_update_interval=2000,  # Less frequent updates
+            verbose=1,
+            device="cuda"                # Use GPU
         )
         
         # Add progress callback

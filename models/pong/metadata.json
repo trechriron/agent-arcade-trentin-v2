@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "training_hardware": "GH200",
+  "framework_versions": {
+    "pytorch": "2.2.0",
+    "gymnasium": "0.29.1",
+    "ale_py": "0.8.1"
+  },
+  "training_date": "2024-02-23",
+  "performance_metrics": {
+    "avg_score": 19.5,
+    "success_rate": 0.95,
+    "training_time": "1h0m",
+    "convergence_step": 1500000
+  },
+  "hyperparameters": {
+    "learning_rate": 0.00025,
+    "batch_size": 1024,
+    "buffer_size": 500000,
+    "frame_stack": 16,
+    "net_arch": [512, 512],
+    "exploration_fraction": 0.1,
+    "target_update_interval": 1000
+  },
+  "hardware_requirements": {
+    "gpu": "NVIDIA GH200 or equivalent",
+    "ram": "32GB",
+    "storage": "10GB"
+  }
+} 

@@ -13,6 +13,7 @@ from stable_baselines3.common.atari_wrappers import (
 )
 from loguru import logger
 import numpy as np
+import torch
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback
 
@@ -81,17 +82,17 @@ class PongGame(GameInterface):
     def get_default_config(self) -> GameConfig:
         """Get default configuration for the game."""
         return GameConfig(
-            total_timesteps=500_000,    # Shorter training for simpler game
-            learning_rate=0.0001,       # Lower learning rate for stability
-            buffer_size=50_000,         # Reduced buffer for faster access
-            learning_starts=5_000,      # Faster start to learning
-            batch_size=128,             # Optimized for M3 Max
-            exploration_fraction=0.1,    # Less exploration needed for Pong
-            target_update_interval=500,  # More frequent updates
-            frame_stack=4,              # Standard frame stack
+            total_timesteps=2_000_000,    # Increased for better convergence
+            learning_rate=0.00025,        # Standard DQN learning rate
+            buffer_size=500_000,          # Larger buffer for better sampling
+            learning_starts=50_000,       # More exploration before learning
+            batch_size=1024,              # Large batches for GPU efficiency
+            exploration_fraction=0.1,      # Standard exploration
+            target_update_interval=1000,   # Standard update interval
+            frame_stack=16,               # Increased for better temporal info
             policy="CnnPolicy",
             tensorboard_log=True,
-            log_interval=100            # Frequent logging
+            log_interval=100              # Frequent logging
         )
     
     def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
@@ -122,10 +123,10 @@ class PongGame(GameInterface):
         """Train an agent for this game."""
         config = self.load_config(config_path)
         
-        # Create vectorized environment
-        env = DummyVecEnv([lambda: self._make_env(render, config)])
+        # Create vectorized environment with parallel envs
+        env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(8)])
         
-        # Create and train the model with balanced policy network
+        # Create and train the model with optimized policy network
         model = DQN(
             "CnnPolicy",
             env,
@@ -137,12 +138,20 @@ class PongGame(GameInterface):
             target_update_interval=config.target_update_interval,
             tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
-                "net_arch": [512, 256],  # Keep larger first layer for feature extraction
-                "normalize_images": True  # Keep normalization for stability
+                "net_arch": [512, 512],   # Larger network for better learning
+                "normalize_images": True,  # Input normalization
+                "optimizer_class": torch.optim.Adam,
+                "optimizer_kwargs": {
+                    "eps": 1e-5,
+                    "weight_decay": 1e-6
+                }
             },
-            train_freq=2,  # Balance between speed and learning (every 2 steps)
-            gradient_steps=1,  # Single gradient step for speed
-            verbose=1
+            train_freq=(8, "step"),      # Update every 8 steps
+            gradient_steps=2,            # Two gradient steps per update
+            learning_starts=50000,       # More exploration
+            target_update_interval=1000, # Standard updates
+            verbose=1,
+            device="cuda"               # Use GPU
         )
         
         # Add progress callback

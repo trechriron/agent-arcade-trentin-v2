@@ -1,94 +1,97 @@
 #!/bin/bash
 set -e
 
-# M3 Max specific optimizations
-echo "🍎 Configuring for M3 Max..."
-export PYTORCH_ENABLE_MPS_FALLBACK=1
-export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.8  # Allow more GPU memory usage
-export PYTORCH_MPS_ALLOCATOR_POLICY=garbage_collection  # Enable better memory management
-export OMP_NUM_THREADS=8  # Optimize CPU thread usage
-export MKL_NUM_THREADS=8  # Optimize MKL thread usage
-DEVICE="mps"
+# GH200 GPU specific optimizations
+echo "🚀 Configuring for Lambda Labs GH200..."
+export CUDA_VISIBLE_DEVICES=0
+export TF_FORCE_GPU_ALLOW_GROWTH=true
+export OMP_NUM_THREADS=32
+export MKL_NUM_THREADS=32
 
 # Create necessary directories
 mkdir -p models/{pong,space_invaders,river_raid}/{checkpoints,videos}
 mkdir -p tensorboard
 
 echo "🎮 Starting Agent Arcade Training Pipeline"
-echo "Device: $DEVICE"
+echo "Device: cuda"
 echo "Start time: $(date)"
 
 # Kill any existing tensorboard processes
 pkill -f tensorboard || true
 
 # Start tensorboard in background
-tensorboard --logdir ./tensorboard --port 6006 &
+tensorboard --logdir ./tensorboard --port 6006 --bind_all &
 sleep 2  # Give tensorboard time to start
 
 echo "Starting training pipeline..."
 echo "Monitor progress at http://localhost:6006"
 
-# Function to run training with proper error handling
+# Function to run training with proper error handling and checkpointing
 train_game() {
     local game=$1
     local expected_time=$2
     echo "🎯 Training $game..."
     echo "Expected training time: $expected_time"
     
-    if ! agent-arcade train $game; then
+    # Create checkpoint directory
+    mkdir -p "models/${game}/checkpoints"
+    
+    if ! agent-arcade train $game \
+        --config "models/${game}/config.yaml" \
+        --output-dir "models/${game}" \
+        --checkpoint-freq 100000; then
         echo "❌ Training failed for $game"
         return 1
     fi
+    
+    # Run comprehensive evaluation
+    echo "Evaluating ${game}..."
+    agent-arcade evaluate $game "models/${game}/${game}_final.zip" \
+        --episodes 200 --no-render
+    
     echo "✅ Training completed for $game"
 }
 
+# Print GPU information
+echo "🔧 GPU Information:"
+nvidia-smi
+python3 -c "import torch; print(f'PyTorch CUDA: {torch.cuda.is_available()}, Device: {torch.cuda.get_device_name()}')"
+
 # Train each game with estimated times
 echo "🎮 Training Schedule:"
-echo "1. Pong (~30 mins)"
-echo "2. Space Invaders (~1 hour)"
-echo "3. River Raid (~2 hours)"
+echo "1. Pong (~1 hour with parallel envs)"
+echo "2. Space Invaders (~2 hours with parallel envs)"
+echo "3. River Raid (~3 hours with parallel envs)"
 echo ""
 
-# Train Pong (500k steps, ~30 mins)
-train_game "pong" "30 minutes"
-
-# Train Space Invaders (1M steps, ~1 hour)
-train_game "space_invaders" "1 hour"
-
-# Train River Raid (2M steps, ~2 hours)
-train_game "riverraid" "2 hours"
+# Train games sequentially with proper GPU utilization
+train_game "pong" "1 hour"
+train_game "space_invaders" "2 hours"
+train_game "riverraid" "3 hours"
 
 echo "Training complete! Models saved in models/ directory"
 
-# Comprehensive evaluation
-echo "🔍 Running evaluation..."
-for game in pong space_invaders river_raid; do
-    echo "Evaluating $game..."
-    # More episodes for reliable metrics
-    agent-arcade evaluate $game "models/${game}/${game}_final.zip" --episodes 100 --no-render
-done
-
+# Print final metrics
 echo "📊 Training Summary:"
 echo "Check tensorboard logs at: ./tensorboard"
 echo "Models saved in: ./models/"
 
 # Print environment information
 echo "🔧 Environment Information:"
-echo "- Hardware: Apple M3 Max"
-echo "- Device: $DEVICE"
+echo "- Hardware: Lambda Labs GH200"
 echo "- PyTorch: $(python3 -c 'import torch; print(torch.__version__)')"
 echo "- Gymnasium: $(python3 -c 'import gymnasium; print(gymnasium.__version__)')"
 echo "- ALE: $(python3 -c 'import ale_py; print(ale_py.__version__)')"
 
-# Print target metrics from training guide
+# Print target metrics
 echo "🎯 Target Metrics:"
-echo "- Pong: Score > 15 (500k steps)"
-echo "- Space Invaders: Score > 500 (1M steps)"
-echo "- River Raid: Score > 10000 (2M steps)"
+echo "- Pong: Score > 19 (95% win rate)"
+echo "- Space Invaders: Score > 1000"
+echo "- River Raid: Score > 12000"
 
-# Print ALE settings used
+# Print ALE settings
 echo "🎮 ALE Settings:"
 echo "- Frame Skip: 4"
 echo "- Sticky Actions: 25% (v5 default)"
 echo "- Observation: Grayscale (84x84)"
-echo "- Frame Stack: 4 frames" 
+echo "- Frame Stack: 16 frames" 

@@ -2,6 +2,16 @@
 
 This directory contains model configurations and saved models for different Atari games supported by Agent Arcade.
 
+## Model Versioning
+
+Each model follows semantic versioning (MAJOR.MINOR.PATCH):
+
+- MAJOR: Breaking changes in model architecture or input requirements
+- MINOR: Performance improvements, non-breaking feature additions
+- PATCH: Bug fixes, hyperparameter tuning
+
+Example: `pong_v2.1.0.zip` indicates version 2.1.0 of the Pong model.
+
 ## Directory Structure
 
 ```bash
@@ -10,40 +20,97 @@ models/
 ├── pong/
 │   ├── config.yaml           # Training configuration
 │   ├── checkpoints/          # Training checkpoints
-│   └── final_model.zip       # Best performing model
+│   ├── versions/             # Version history
+│   │   ├── v1.0.0/          # Initial release
+│   │   └── v2.0.0/          # Current version
+│   └── metadata.json         # Model metadata and version info
 ├── space_invaders/
-│   ├── config.yaml           # Training configuration
-│   ├── checkpoints/          # Training checkpoints
-│   └── final_model.zip       # Best performing model
+│   ├── config.yaml
+│   ├── checkpoints/
+│   ├── versions/
+│   └── metadata.json
 └── river_raid/
-    ├── config.yaml           # Training configuration
-    ├── checkpoints/          # Training checkpoints
-    └── final_model.zip       # Best performing model
+    ├── config.yaml
+    ├── checkpoints/
+    ├── versions/
+    └── metadata.json
 ```
 
-## Game Configurations
+## Hardware-Specific Configurations
 
-### Pong
+### GH200 GPU Optimizations
+
+- Large batch sizes (1024-2048)
+- Extended frame stacking (16 frames)
+- Multiple parallel environments (16)
+- Gradient accumulation
+- Large replay buffers
+
+### Macbook M-SeriesOptimizations
+
+- Reduced batch sizes (32-128)
+- Standard frame stacking (4 frames)
+- Memory-efficient buffers
+- MPS-specific settings
+
+## Game-Specific Configurations
+
+### Pong (v2.0.0)
 
 - Environment: `ALE/Pong-v5`
-- Training Steps: 1M
-- Expected Score: 15+ points
-- Training Time: ~2 hours on M-series MacBook
+- Training Steps: 2M
+- Expected Score: >19 points (95% win rate)
+- Architecture: CNN with [512, 512] hidden layers
+- Hardware Target: GH200 GPU
+- Training Time: ~1 hour
 
-### Space Invaders
+### Space Invaders (v2.0.0)
 
 - Environment: `ALE/SpaceInvaders-v5`
-- Training Steps: 3M
-- Expected Score: 270+ points
-- Training Time: ~6 hours on M-series MacBook
+- Training Steps: 5M
+- Expected Score: >1000 points
+- Architecture: CNN with [1024, 512] hidden layers
+- Hardware Target: GH200 GPU
+- Training Time: ~2 hours
 - Special Features: Prioritized replay, dueling networks
 
-### River Raid
+### River Raid (v2.0.0)
 
 - Environment: `ALE/RiverRaid-v5`
-- Training Steps: 2M
-- Custom reward shaping for fuel management
-- Advanced training features enabled
+- Training Steps: 10M
+- Expected Score: >12000 points
+- Architecture: CNN with [2048, 1024] hidden layers
+- Hardware Target: GH200 GPU
+- Training Time: ~3 hours
+- Special Features: Custom reward shaping, extended exploration
+
+## Model Metadata
+
+Each model's `metadata.json` includes:
+
+```json
+{
+  "version": "2.0.0",
+  "training_hardware": "GH200",
+  "framework_versions": {
+    "pytorch": "2.2.0",
+    "gymnasium": "0.29.1",
+    "ale_py": "0.8.1"
+  },
+  "training_date": "2024-02-23",
+  "performance_metrics": {
+    "avg_score": 0.0,
+    "success_rate": 0.0,
+    "training_time": "0h0m",
+    "convergence_step": 0
+  },
+  "hyperparameters": {
+    "learning_rate": 0.00025,
+    "batch_size": 2048,
+    "buffer_size": 2000000
+  }
+}
+```
 
 ## Usage
 
@@ -56,67 +123,74 @@ models/
 2. **Evaluating a Model**:
 
    ```bash
-   agent-arcade evaluate pong --model models/pong/final_model.zip
+   agent-arcade evaluate pong --model models/pong/versions/v2.0.0/model.zip
    ```
 
 3. **Competition Entry**:
 
    ```bash
-   agent-arcade stake place pong --model models/pong/final_model.zip --amount 10 --target-score 15
+   agent-arcade stake place pong --model models/pong/versions/v2.0.0/model.zip --amount 10
    ```
 
-## Model Checkpoints
+## Model Selection Guidelines
 
-Each game directory contains a `checkpoints` folder that stores intermediate models during training. Checkpoints are saved every 100,000 steps and can be used to:
+1. **Version Selection**:
+   - Use latest version for best performance
+   - Check hardware compatibility
+   - Review performance metrics
 
-- Resume training from a specific point
-- Compare performance across training stages
-- Select the best performing model
+2. **Hardware Requirements**:
+   - GH200 Models:
+     - GPU: NVIDIA GH200 or equivalent
+     - RAM: 32GB+ recommended
+     - Storage: 10GB+ for full version history
 
-## Configuration Details
+   - M-Series Models:
+     - Apple Silicon M-Series
+     - RAM: 32GB recommended
+     - Storage: 5GB+ for full version history
 
-Each `config.yaml` file contains:
+3. **Performance Verification**:
+   - Run evaluation over 200+ episodes
+   - Check for consistent performance
+   - Verify hardware utilization
 
-- Training hyperparameters
-- Network architecture settings
-- Preprocessing options
-- Game-specific configurations
-- Visualization settings
+## Contributing Models
 
-## Performance Metrics
+1. **Testing Requirements**:
+   - 200+ evaluation episodes
+   - Performance metrics documented
+   - Hardware specifications listed
 
-Monitor training progress using TensorBoard:
+2. **Documentation**:
+   - Update metadata.json
+   - Document training process
+   - Include performance graphs
+
+3. **Version Control**:
+   - Create new version directory
+   - Update README.md
+   - Tag release in repository
+
+## Monitoring and Metrics
+
+Access training metrics:
 
 ```bash
 tensorboard --logdir ./tensorboard
 ```
 
-Key metrics to watch:
+Key metrics:
 
 - Episode rewards
-- Loss values
-- Exploration rate
-- Training FPS
+- Learning curves
+- Resource utilization
+- Training speed (FPS)
+- Model convergence
 
-## Best Practices
+## Support
 
-1. **Start with Default Configs**:
-   - Use provided configurations as starting points
-   - They're optimized for M-series MacBooks
-   - Adjust based on your hardware
+For issues or questions:
 
-2. **Incremental Training**:
-   - Start with 250K steps to verify setup
-   - Increase to full training once stable
-   - Save checkpoints frequently
-
-3. **Model Selection**:
-   - Evaluate models over multiple episodes
-   - Consider both mean score and consistency
-   - Test against competition requirements
-
-4. **Hardware Optimization**:
-   - CPU: Use 4+ cores
-   - RAM: 8GB minimum
-   - GPU: Optional but recommended
-   - Storage: 1GB for models
+- GitHub Issues: [Agent Arcade Issues](https://github.com/jbarnes850/agent-arcade/issues)
+- Documentation: [Agent Arcade Docs](https://github.com/jbarnes850/agent-arcade/tree/main/docs)
