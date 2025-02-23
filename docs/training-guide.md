@@ -168,24 +168,84 @@ agent-arcade evaluate pong models/pong/final_model.zip --record
 - Target Score: 15000
 - Success Threshold: 10000
 
-## Best Practices
+## Model Management
 
-1. **Start Simple**
-   - Use default configurations
-   - Train for short periods
-   - Validate basic functionality
+### Saved Model Structure
 
-2. **Iterate Carefully**
-   - Change one parameter at a time
-   - Document changes and results
-   - Use version control for configs
+After training, models are organized as follows:
 
-3. **Monitor Progress**
-   - Regular evaluation episodes
-   - Track key metrics
-   - Save checkpoints frequently
+```bash
+models/
+├── pong/
+│   ├── pong_final.zip           # Final trained model
+│   ├── checkpoints/             # Periodic checkpoints
+│   │   ├── checkpoint_100000.zip
+│   │   ├── checkpoint_200000.zip
+│   │   └── ...
+│   └── videos/                  # Recorded gameplay
+├── space_invaders/
+│   └── ...
+└── river_raid/
+    └── ...
+```
 
-4. **Prepare for Competition**
-   - Validate against test episodes
-   - Record demonstration videos
-   - Document performance characteristics
+### Transferring Models
+
+#### From Remote GPU to Local Machine
+
+1. **Using SCP**:
+
+```bash
+# Create local directory
+mkdir -p ~/agent-arcade-models
+
+# Copy all models and checkpoints
+scp -r ubuntu@your-lambda-ip:~/agent-arcade/models/* ~/agent-arcade-models/
+```
+
+2. **Using Rsync (Recommended)**:
+
+```bash
+# Copy models with progress indication
+rsync -avz --progress ubuntu@your-lambda-ip:~/agent-arcade/models/ ~/agent-arcade-models/
+
+# Copy TensorBoard logs for local analysis
+rsync -avz --progress ubuntu@your-lambda-ip:~/agent-arcade/tensorboard/ ~/agent-arcade-tensorboard/
+```
+
+### Local Evaluation
+
+After transferring, you can evaluate models locally:
+
+```bash
+# Basic evaluation
+agent-arcade evaluate pong ~/agent-arcade-models/pong/pong_final.zip --episodes 10
+
+# Evaluation with rendering
+agent-arcade evaluate pong ~/agent-arcade-models/pong/pong_final.zip --episodes 10 --render
+
+# Record evaluation videos
+agent-arcade evaluate pong ~/agent-arcade-models/pong/pong_final.zip --episodes 5 --record
+```
+
+### Best Practices for Model Management
+
+1. **Version Control**
+   - Keep checkpoints for different training runs
+   - Document hyperparameters used
+   - Track evaluation metrics
+
+2. **Backup Strategy**
+   - Regular transfers from GPU instances
+   - Keep multiple checkpoints
+   - Document performance at each checkpoint
+
+3. **Performance Documentation**
+   - Record final evaluation metrics
+   - Save TensorBoard logs
+   - Document hardware specifications used
+
+4. **Model Sharing**
+   - Include configuration files
+   - Document environment versions
+   - Provide example evaluation scripts

@@ -471,15 +471,20 @@ python3 -m venv drl-env
 source drl-env/bin/activate
 
 # 3. Install dependencies in correct order
-pip install "torch>=2.3.0"
-pip install "ale-py==0.10.1"
-pip install "shimmy[atari]==0.2.1"
-pip install "gymnasium[atari]==0.28.1"
-pip install "stable-baselines3[extra]>=2.5.0"
+pip install --upgrade pip setuptools wheel
+pip install torch==2.1.2 --index-url https://download.pytorch.org/whl/cu118
+pip install "ale-py==0.8.1"
+pip install "gymnasium[accept-rom-license,atari]==0.28.1"
+pip install "stable-baselines3[extra]==2.1.0"
+pip install "autorom==0.6.1"
+pip install "tensorboard==2.14.1"
 
 # 4. Install AutoROM
 pip install "autorom>=0.6.1"
 AutoROM --accept-license
+
+# Install agent-arcade package
+pip install -e .
 
 # 5. Verify installation
 python3 -c "

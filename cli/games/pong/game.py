@@ -3,7 +3,7 @@ import gymnasium as gym
 from pathlib import Path
 from typing import Optional, Tuple, Any
 from stable_baselines3 import DQN
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 from stable_baselines3.common.atari_wrappers import (
     NoopResetEnv,
     MaxAndSkipEnv,
@@ -40,6 +40,21 @@ class ScaleObservation(gym.ObservationWrapper):
     def observation(self, obs):
         return obs.astype(np.float32) / 255.0
 
+class TransposeImage(gym.ObservationWrapper):
+    """Transpose image observation for compatibility."""
+    
+    def __init__(self, env=None):
+        super().__init__(env)
+        obs_shape = self.observation_space.shape
+        self.observation_space = gym.spaces.Box(
+            low=0, high=1,
+            shape=(obs_shape[-1], obs_shape[0], obs_shape[1]),
+            dtype=np.float32
+        )
+    
+    def observation(self, observation):
+        return np.transpose(observation, axes=(2, 0, 1))
+
 class PongGame(GameInterface):
     """Pong game implementation."""
     
@@ -71,9 +86,9 @@ class PongGame(GameInterface):
         """Get valid score range for the game."""
         return self.score_range
         
-    def make_env(self):
+    def make_env(self, config: Optional[GameConfig] = None):
         """Create the game environment."""
-        return self._make_env()
+        return self._make_env(config=config)
         
     def load_model(self, model_path: str):
         """Load a trained model."""
@@ -100,22 +115,78 @@ class PongGame(GameInterface):
         if config is None:
             config = self.get_default_config()
         
-        render_mode = 'human' if render else 'rgb_array'
-        env = gym.make(
-            self.env_id,
-            render_mode=render_mode
-        )
+        def make_single_env():
+            env = gym.make(
+                self.env_id,
+                render_mode='human' if render else 'rgb_array'
+            )
+            
+            # Add standard Atari wrappers in correct order
+            env = NoopResetEnv(env, noop_max=30)
+            env = MaxAndSkipEnv(env, skip=4)
+            env = EpisodicLifeEnv(env)
+            env = ClipRewardEnv(env)
+            
+            # Standard observation preprocessing to match SB3 Atari preprocessing
+            env = gym.wrappers.ResizeObservation(env, (84, 84))
+            env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)  # Keep channel dim for stacking
+            env = ScaleObservation(env)  # Scale to [0, 1]
+            
+            # Debug observation space
+            logger.debug(f"Single env observation space: {env.observation_space}")
+            return env
         
-        # Add standard Atari wrappers in correct order
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)
-        env = EpisodicLifeEnv(env)
-        env = ClipRewardEnv(env)
+        # Create vectorized environment with frame stacking
+        env = DummyVecEnv([make_single_env])
         
-        # Standard observation preprocessing
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env)
-        env = gym.wrappers.FrameStackObservation(env, config.frame_stack)
+        # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
+        # The model expects 4 input channels, so we'll use 4 frames regardless of config
+        env = VecFrameStack(env, n_stack=4, channels_order='last')
+        
+        # Transpose to get (n_stack, h, w) or (n_env, n_stack, h, w)
+        from stable_baselines3.common.vec_env import VecEnvWrapper
+        
+        class TransposeVecObs(VecEnvWrapper):
+            """Transpose observation for compatibility with SB3."""
+            
+            def __init__(self, venv):
+                super().__init__(venv)
+                obs_shape = self.observation_space.shape
+                
+                # VecEnv always has batch dim first
+                # Input: (n_envs, h, w, n_stack)
+                # Output: (n_envs, n_stack, h, w)
+                self.observation_space = gym.spaces.Box(
+                    low=0, high=1,
+                    shape=(obs_shape[0], obs_shape[-1], obs_shape[1], obs_shape[2]),
+                    dtype=np.float32
+                )
+            
+            def reset(self):
+                obs = self.venv.reset()
+                if isinstance(obs, tuple):
+                    obs, info = obs
+                    return self._transpose_obs(obs), info
+                return self._transpose_obs(obs), {}
+            
+            def step_wait(self):
+                result = self.venv.step_wait()
+                if len(result) == 4:
+                    # Old gym API: obs, reward, done, info
+                    obs, reward, done, info = result
+                    return self._transpose_obs(obs), reward, done, False, info
+                else:
+                    # New gym API: obs, reward, terminated, truncated, info
+                    obs, reward, terminated, truncated, info = result
+                    return self._transpose_obs(obs), reward, terminated, truncated, info
+            
+            def _transpose_obs(self, obs):
+                return np.transpose(obs, (0, 3, 1, 2))
+        
+        env = TransposeVecObs(env)
+        
+        # Debug final observation space
+        logger.debug(f"Final observation space: {env.observation_space}")
         
         return env
     

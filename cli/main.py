@@ -255,7 +255,8 @@ def test_evaluate(game: str, model_path: str, episodes: int = 20, render: bool =
 @click.option('--episodes', default=100, help='Number of evaluation episodes')
 @click.option('--render/--no-render', default=False, help='Render evaluation episodes')
 @click.option('--record/--no-record', default=False, help='Record videos of evaluation')
-def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bool):
+@click.option('--frame-stack', type=int, help='Override frame stack size (default: from metadata or 16)')
+def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bool, frame_stack: Optional[int]):
     """Evaluate a trained model and record to leaderboard."""
     if not wallet.is_logged_in():
         logger.error("Must be logged in to evaluate models")
@@ -284,14 +285,44 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bo
             return
         
         game_info = get_game_info(game)
-        env = game_info.make_env()
-        model = game_info.load_model(model_path)
+        
+        # Load model metadata to get frame_stack configuration
+        model_dir = Path(model_path).parent
+        metadata_path = model_dir / "metadata.json"
+        frame_stack_size = frame_stack  # Use provided value if any
+        if frame_stack_size is None:  # If not provided, try metadata
+            if metadata_path.exists():
+                with open(metadata_path) as f:
+                    metadata = json.load(f)
+                    frame_stack_size = metadata.get("hyperparameters", {}).get("frame_stack", 16)
+                    logger.debug(f"Using frame_stack={frame_stack_size} from metadata")
+            else:
+                frame_stack_size = 16  # Default to training setting
+                logger.debug(f"Using default frame_stack={frame_stack_size}")
+        
+        # Create environment with correct frame stack size
+        config = game_info.get_default_config()
+        config.frame_stack = frame_stack_size
+        try:
+            env = game_info.make_env(config=config)
+            logger.debug(f"Created environment with observation space: {env.observation_space}")
+        except Exception as e:
+            logger.error(f"Failed to create environment: {e}")
+            raise
+            
+        try:
+            model = game_info.load_model(model_path)
+            logger.debug(f"Loaded model with policy: {model.policy}")
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            raise
         
         config = EvaluationConfig(
             n_eval_episodes=episodes,
             render=render,
             verbose=1,  # Set default verbosity level
-            record_video=record
+            record_video=record,
+            frame_stack=frame_stack_size
         )
         
         pipeline = EvaluationPipeline(
@@ -311,6 +342,11 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bo
             click.echo(f"Mean Score: {result.mean_reward:.2f} ± {result.std_reward:.2f}")
             click.echo(f"Success Rate: {result.success_rate*100:.1f}%")
             click.echo(f"Episodes: {result.n_episodes}")
+            click.echo(f"\nEnvironment Settings:")
+            click.echo(f"Frame Stack: {result.metadata['frame_stack']}")
+            click.echo(f"Frame Skip: {result.metadata['frame_skip']}")
+            click.echo(f"Sticky Actions: {result.metadata['sticky_actions']}")
+            click.echo(f"Observation Size: {result.metadata['observation_size']}")
             
             if game_config:
                 click.echo("\nStaking Thresholds:")
@@ -336,11 +372,15 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bo
         
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")
+            import traceback
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
         finally:
             env.close()
             
     except Exception as e:
         logger.error(f"Evaluation setup failed: {e}")
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
         if 'env' in locals():
             env.close()
 

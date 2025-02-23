@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any, List
 import gymnasium as gym
 from stable_baselines3.common.base_class import BaseAlgorithm
 from loguru import logger
+import numpy as np
 
 from .leaderboard import LeaderboardManager
 from .wallet import NEARWallet
@@ -18,6 +19,7 @@ class EvaluationConfig:
         deterministic: bool = True,
         render: bool = False,
         verbose: int = 1,
+        frame_stack: int = 16,  # Default to training setting
         **kwargs
     ):
         """Initialize evaluation configuration.
@@ -27,12 +29,14 @@ class EvaluationConfig:
             deterministic: Whether to use deterministic actions
             render: Whether to render the environment
             verbose: Verbosity level
+            frame_stack: Number of frames to stack (should match training)
             **kwargs: Additional configuration options
         """
         self.n_eval_episodes = n_eval_episodes
         self.deterministic = deterministic
         self.render = render
         self.verbose = verbose
+        self.frame_stack = frame_stack
         self.additional_config = kwargs
 
 class EvaluationResult:
@@ -110,24 +114,38 @@ class EvaluationPipeline:
             if self.config.verbose > 0:
                 logger.info(f"Starting evaluation episode {i+1}/{self.config.n_eval_episodes}")
             
-            obs, _ = self.env.reset()
+            # VecEnv returns (obs, info) tuple
+            obs, info = self.env.reset()
             done = False
-            truncated = False
             episode_reward = 0
             episode_length = 0
             
-            while not (done or truncated):
+            while not done:
+                # Model expects (n_stack, h, w) or (n_env, n_stack, h, w)
                 action, _ = self.model.predict(obs, deterministic=self.config.deterministic)
-                obs, reward, done, truncated, info = self.env.step(action)
+                
+                # VecEnv returns (obs, reward, terminated, truncated, info)
+                obs, reward, terminated, truncated, info = self.env.step(action)
                 
                 if self.config.render:
                     self.env.render()
                 
-                episode_reward += reward
+                # Handle both array and scalar rewards
+                episode_reward += reward[0] if isinstance(reward, (list, tuple, np.ndarray)) else reward
                 episode_length += 1
                 
-                if info.get("is_success", False):
+                # Handle success tracking for vectorized envs
+                if isinstance(info, (list, tuple)):
+                    info = info[0]  # Get first env's info
+                if isinstance(info, dict) and info.get("is_success", False):
                     successes += 1
+                
+                # Handle both array and scalar terminated/truncated flags
+                if isinstance(terminated, (list, tuple, np.ndarray)):
+                    terminated = terminated[0]
+                if isinstance(truncated, (list, tuple, np.ndarray)):
+                    truncated = truncated[0]
+                done = terminated or truncated
             
             episode_rewards.append(episode_reward)
             episode_lengths.append(episode_length)
@@ -135,16 +153,24 @@ class EvaluationPipeline:
             if self.config.verbose > 0:
                 logger.info(f"Episode {i+1} finished with reward {episode_reward}")
         
-        mean_reward = sum(episode_rewards) / len(episode_rewards)
-        std_reward = (
-            sum((r - mean_reward) ** 2 for r in episode_rewards) 
-            / len(episode_rewards)
-        ) ** 0.5
+        mean_reward = np.mean(episode_rewards)
+        std_reward = np.std(episode_rewards)
         success_rate = successes / self.config.n_eval_episodes
         
+        # Get environment ID from the first environment in the VecEnv
+        env_id = None
+        if hasattr(self.env, 'envs') and len(self.env.envs) > 0:
+            if hasattr(self.env.envs[0].unwrapped, 'spec'):
+                env_id = self.env.envs[0].unwrapped.spec.id
+        
+        # Include ALE settings in metadata
         metadata = {
-            "env_id": self.env.unwrapped.spec.id,
+            "env_id": env_id,
             "model_class": self.model.__class__.__name__,
+            "frame_stack": self.config.frame_stack,
+            "frame_skip": 4,  # ALE v5 default
+            "sticky_actions": 0.25,  # ALE v5 default
+            "observation_size": (84, 84),  # Standard size
             **self.config.additional_config
         }
         
@@ -169,6 +195,17 @@ class EvaluationPipeline:
         """
         if not self.wallet.is_logged_in():
             raise ValueError("Must be logged in to record evaluation results")
+        
+        # Load model metadata to ensure consistent settings
+        metadata_path = model_path.parent / "metadata.json"
+        if metadata_path.exists():
+            import json
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+                # Update config with training settings
+                if "hyperparameters" in metadata:
+                    self.config.frame_stack = metadata["hyperparameters"].get("frame_stack", 16)
+                    logger.debug(f"Using frame_stack={self.config.frame_stack} from metadata")
         
         result = self.evaluate()
         
