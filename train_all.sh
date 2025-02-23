@@ -1,133 +1,94 @@
 #!/bin/bash
 set -e
 
-# Function to check if running on Apple Silicon
-check_m3() {
-    if [[ $(uname -m) == "arm64" ]]; then
-        return 0  # true
-    else
-        return 1  # false
-    fi
-}
+# M3 Max specific optimizations
+echo "🍎 Configuring for M3 Max..."
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.8  # Allow more GPU memory usage
+export PYTORCH_MPS_ALLOCATOR_POLICY=garbage_collection  # Enable better memory management
+export OMP_NUM_THREADS=8  # Optimize CPU thread usage
+export MKL_NUM_THREADS=8  # Optimize MKL thread usage
+DEVICE="mps"
 
-# Function to check if CUDA is available
-check_cuda() {
-    if python3 -c "import torch; print(torch.cuda.is_available())" | grep -q "True"; then
-        return 0  # true
-    else
-        return 1  # false
-    fi
-}
-
-# Configure environment based on hardware
-if check_m3; then
-    echo "🍎 Detected Apple Silicon (M3 Max)"
-    export PYTORCH_ENABLE_MPS_FALLBACK=1
-    DEVICE="mps"
-    # M3 Max optimized batch sizes and parallel environments
-    PONG_BATCH_SIZE=512
-    PONG_N_ENVS=8
-    INVADERS_BATCH_SIZE=1024
-    INVADERS_N_ENVS=8
-    RAID_BATCH_SIZE=1024
-    RAID_N_ENVS=16
-elif check_cuda; then
-    echo "🚀 Detected CUDA GPU (GH200)"
-    DEVICE="cuda"
-    # GH200 optimized batch sizes and parallel environments
-    PONG_BATCH_SIZE=1024
-    PONG_N_ENVS=16
-    INVADERS_BATCH_SIZE=2048
-    INVADERS_N_ENVS=32
-    RAID_BATCH_SIZE=4096
-    RAID_N_ENVS=64
-else
-    echo "⚠️  No GPU detected, using CPU (not recommended for training)"
-    DEVICE="cpu"
-    # Conservative CPU settings
-    PONG_BATCH_SIZE=32
-    PONG_N_ENVS=4
-    INVADERS_BATCH_SIZE=32
-    INVADERS_N_ENVS=4
-    RAID_BATCH_SIZE=32
-    RAID_N_ENVS=4
-fi
-
-# Create output directories
-mkdir -p models/{pong,space_invaders,river_raid}/baseline/checkpoints
+# Create necessary directories
+mkdir -p models/{pong,space_invaders,river_raid}/{checkpoints,videos}
 mkdir -p tensorboard
 
 echo "🎮 Starting Agent Arcade Training Pipeline"
 echo "Device: $DEVICE"
 echo "Start time: $(date)"
 
-# Start TensorBoard in background
-tensorboard --logdir ./tensorboard --port 6006 &
-TENSORBOARD_PID=$!
+# Kill any existing tensorboard processes
+pkill -f tensorboard || true
 
-# Function to update config file
-update_config() {
+# Start tensorboard in background
+tensorboard --logdir ./tensorboard --port 6006 &
+sleep 2  # Give tensorboard time to start
+
+echo "Starting training pipeline..."
+echo "Monitor progress at http://localhost:6006"
+
+# Function to run training with proper error handling
+train_game() {
     local game=$1
-    local batch_size=$2
-    local n_envs=$3
-    local config_file="models/$game/config.yaml"
+    local expected_time=$2
+    echo "🎯 Training $game..."
+    echo "Expected training time: $expected_time"
     
-    # Create temporary config with updated values
-    sed -i.bak "
-        s/batch_size:.*/batch_size: $batch_size/g;
-        s/n_envs:.*/n_envs: $n_envs/g;
-        s/device:.*/device: \"$DEVICE\"/g;
-    " "$config_file"
+    if ! agent-arcade train $game; then
+        echo "❌ Training failed for $game"
+        return 1
+    fi
+    echo "✅ Training completed for $game"
 }
 
-# Pong Training
-echo "🏓 Training Pong..."
-echo "Configuration: batch_size=$PONG_BATCH_SIZE, n_envs=$PONG_N_ENVS"
-update_config "pong" $PONG_BATCH_SIZE $PONG_N_ENVS
-agent-arcade train pong \
-    --config models/pong/config.yaml \
-    --checkpoint-freq 100000 \
-    --output-dir models/pong/baseline \
-    || { echo "❌ Pong training failed"; exit 1; }
+# Train each game with estimated times
+echo "🎮 Training Schedule:"
+echo "1. Pong (~30 mins)"
+echo "2. Space Invaders (~1 hour)"
+echo "3. River Raid (~2 hours)"
+echo ""
 
-# Space Invaders Training
-echo "👾 Training Space Invaders..."
-echo "Configuration: batch_size=$INVADERS_BATCH_SIZE, n_envs=$INVADERS_N_ENVS"
-update_config "space_invaders" $INVADERS_BATCH_SIZE $INVADERS_N_ENVS
-agent-arcade train space-invaders \
-    --config models/space_invaders/config.yaml \
-    --checkpoint-freq 200000 \
-    --output-dir models/space_invaders/baseline \
-    || { echo "❌ Space Invaders training failed"; exit 1; }
+# Train Pong (500k steps, ~30 mins)
+train_game "pong" "30 minutes"
 
-# River Raid Training
-echo "🚁 Training River Raid..."
-echo "Configuration: batch_size=$RAID_BATCH_SIZE, n_envs=$RAID_N_ENVS"
-update_config "river_raid" $RAID_BATCH_SIZE $RAID_N_ENVS
-agent-arcade train river-raid \
-    --config models/river_raid/config.yaml \
-    --checkpoint-freq 300000 \
-    --output-dir models/river_raid/baseline \
-    || { echo "❌ River Raid training failed"; exit 1; }
+# Train Space Invaders (1M steps, ~1 hour)
+train_game "space_invaders" "1 hour"
 
-# Kill TensorBoard
-kill $TENSORBOARD_PID
+# Train River Raid (2M steps, ~2 hours)
+train_game "riverraid" "2 hours"
 
-# Restore original configs
-for game in pong space_invaders river_raid; do
-    mv "models/$game/config.yaml.bak" "models/$game/config.yaml"
-done
+echo "Training complete! Models saved in models/ directory"
 
-echo "✅ Training complete!"
-echo "End time: $(date)"
-
-# Run quick evaluation of all models
+# Comprehensive evaluation
 echo "🔍 Running evaluation..."
 for game in pong space_invaders river_raid; do
     echo "Evaluating $game..."
-    agent-arcade test-evaluate $game "models/$game/baseline/final_model.zip" --episodes 20 --no-render
+    # More episodes for reliable metrics
+    agent-arcade evaluate $game "models/${game}/${game}_final.zip" --episodes 100 --no-render
 done
 
 echo "📊 Training Summary:"
 echo "Check tensorboard logs at: ./tensorboard"
-echo "Models saved in: ./models/*/baseline" 
+echo "Models saved in: ./models/"
+
+# Print environment information
+echo "🔧 Environment Information:"
+echo "- Hardware: Apple M3 Max"
+echo "- Device: $DEVICE"
+echo "- PyTorch: $(python3 -c 'import torch; print(torch.__version__)')"
+echo "- Gymnasium: $(python3 -c 'import gymnasium; print(gymnasium.__version__)')"
+echo "- ALE: $(python3 -c 'import ale_py; print(ale_py.__version__)')"
+
+# Print target metrics from training guide
+echo "🎯 Target Metrics:"
+echo "- Pong: Score > 15 (500k steps)"
+echo "- Space Invaders: Score > 500 (1M steps)"
+echo "- River Raid: Score > 10000 (2M steps)"
+
+# Print ALE settings used
+echo "🎮 ALE Settings:"
+echo "- Frame Skip: 4"
+echo "- Sticky Actions: 25% (v5 default)"
+echo "- Observation: Grayscale (84x84)"
+echo "- Frame Stack: 4 frames" 

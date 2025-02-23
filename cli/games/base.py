@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 import time
 import gymnasium as gym
 from dataclasses import dataclass
+import numpy as np
 
 # Optional NEAR imports
 try:
@@ -29,6 +30,7 @@ except ImportError:
 @dataclass
 class GameConfig:
     """Game training configuration."""
+    # Core training parameters
     total_timesteps: int = 1_000_000
     learning_rate: float = 0.00025
     buffer_size: int = 250_000
@@ -37,6 +39,30 @@ class GameConfig:
     exploration_fraction: float = 0.2
     target_update_interval: int = 2000
     frame_stack: int = 4
+
+    # Network architecture
+    policy: str = "CnnPolicy"
+
+    # Environment settings
+    frame_skip: int = 4
+    noop_max: int = 30
+
+    # Evaluation settings
+    eval_episodes: int = 100
+    eval_deterministic: bool = True
+    render_eval: bool = False
+
+    # Logging
+    tensorboard_log: bool = True
+    save_freq: int = 100000
+    log_interval: int = 1000
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GameConfig':
+        """Create config from dict, ignoring unknown fields."""
+        known_fields = cls.__dataclass_fields__.keys()
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered_data)
 
 class EvaluationResult(BaseModel):
     """Evaluation results for a game."""
@@ -230,7 +256,7 @@ class GameInterface(ABC):
             import yaml
             with open(config_path) as f:
                 config_dict = yaml.safe_load(f)
-            return GameConfig(**config_dict)
+            return GameConfig.from_dict(config_dict)
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
             logger.info("Using default configuration")
@@ -260,7 +286,7 @@ class GameInterface(ABC):
     def _make_env(self, render: bool = False) -> gym.Env:
         """Create the game environment with proper wrappers."""
         render_mode = "human" if render else "rgb_array"
-        env = gym.make(self.env_id, render_mode=render_mode, frameskip=1)
+        env = gym.make(self.env_id, render_mode=render_mode)
         
         # Standard Atari wrappers
         env = NoopResetEnv(env, noop_max=30)
@@ -270,8 +296,9 @@ class GameInterface(ABC):
             env = FireResetEnv(env)
         env = ClipRewardEnv(env)
         
-        # Observation preprocessing
+        # Standard observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
-        env = gym.wrappers.FrameStackObservation(env, 4)
-        return 1.0 
+        env = gym.wrappers.GrayscaleObservation(env)
+        env = gym.wrappers.FrameStack(env, 4)
+        
+        return env 

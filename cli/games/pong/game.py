@@ -3,7 +3,7 @@ import gymnasium as gym
 from pathlib import Path
 from typing import Optional, Tuple, Any
 from stable_baselines3 import DQN
-from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
+from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.atari_wrappers import (
     NoopResetEnv,
     MaxAndSkipEnv,
@@ -12,6 +12,7 @@ from stable_baselines3.common.atari_wrappers import (
     ClipRewardEnv
 )
 from loguru import logger
+import numpy as np
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback
 
@@ -23,6 +24,20 @@ try:
 except ImportError:
     NEAR_AVAILABLE = False
     NEARWallet = Any  # Type alias for type hints
+
+class ScaleObservation(gym.ObservationWrapper):
+    """Scale observations to [0, 1]."""
+    
+    def __init__(self, env):
+        super().__init__(env)
+        self.observation_space = gym.spaces.Box(
+            low=0, high=1,
+            shape=self.observation_space.shape,
+            dtype=np.float32
+        )
+    
+    def observation(self, obs):
+        return obs.astype(np.float32) / 255.0
 
 class PongGame(GameInterface):
     """Pong game implementation."""
@@ -57,20 +72,7 @@ class PongGame(GameInterface):
         
     def make_env(self):
         """Create the game environment."""
-        env = gym.make(self.env_id, render_mode='rgb_array', frameskip=4)
-        
-        # Add standard Atari wrappers
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)
-        env = EpisodicLifeEnv(env)
-        env = ClipRewardEnv(env)
-        
-        # Observation preprocessing
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
-        env = gym.wrappers.FrameStackObservation(env, 4)
-        
-        return env
+        return self._make_env()
         
     def load_model(self, model_path: str):
         """Load a trained model."""
@@ -79,51 +81,51 @@ class PongGame(GameInterface):
     def get_default_config(self) -> GameConfig:
         """Get default configuration for the game."""
         return GameConfig(
-            total_timesteps=1_000_000,
-            learning_rate=0.00025,
-            buffer_size=250_000,
-            learning_starts=50_000,
-            batch_size=256,
-            exploration_fraction=0.2,
-            target_update_interval=2000,
-            frame_stack=4
+            total_timesteps=500_000,    # Shorter training for simpler game
+            learning_rate=0.0001,       # Lower learning rate for stability
+            buffer_size=50_000,         # Reduced buffer for faster access
+            learning_starts=5_000,      # Faster start to learning
+            batch_size=128,             # Optimized for M3 Max
+            exploration_fraction=0.1,    # Less exploration needed for Pong
+            target_update_interval=500,  # More frequent updates
+            frame_stack=4,              # Standard frame stack
+            policy="CnnPolicy",
+            tensorboard_log=True,
+            log_interval=100            # Frequent logging
         )
     
-    def _make_env(self, render: bool = False, record: bool = False) -> gym.Env:
-        """Create the Pong environment with proper wrappers."""
-        # Use human rendering if requested, otherwise rgb_array
-        render_mode = "human" if render else "rgb_array"
-        env = gym.make(self.env_id, render_mode=render_mode, frameskip=4)
+    def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
+        """Create the game environment."""
+        if config is None:
+            config = self.get_default_config()
         
-        # Add standard Atari wrappers
+        render_mode = 'human' if render else 'rgb_array'
+        env = gym.make(
+            self.env_id,
+            render_mode=render_mode
+        )
+        
+        # Add standard Atari wrappers in correct order
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
+        env = ClipRewardEnv(env)
         
-        # Observation preprocessing
+        # Standard observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayscaleObservation(env)
-        env = gym.wrappers.FrameStackObservation(env, 4)  # Use 4 frames to match saved models
-        
-        # Add video recording wrapper only during evaluation if requested
-        if record:
-            env = gym.wrappers.RecordVideo(
-                env,
-                "videos/evaluation",
-                episode_trigger=lambda x: True  # Record all evaluation episodes
-            )
+        env = gym.wrappers.FrameStackObservation(env, 4)
         
         return env
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
-        """Train a Pong agent."""
+        """Train an agent for this game."""
         config = self.load_config(config_path)
         
-        # Create vectorized environment without recording
-        env = DummyVecEnv([lambda: self._make_env(render, record=False) for _ in range(4)])  # Use 4 parallel environments
-        env = VecFrameStack(env, config.frame_stack)
+        # Create vectorized environment
+        env = DummyVecEnv([lambda: self._make_env(render, config)])
         
-        # Create and train the model with optimized parameters
+        # Create and train the model with balanced policy network
         model = DQN(
             "CnnPolicy",
             env,
@@ -133,37 +135,31 @@ class PongGame(GameInterface):
             batch_size=config.batch_size,
             exploration_fraction=config.exploration_fraction,
             target_update_interval=config.target_update_interval,
-            tensorboard_log="./tensorboard/pong",
-            verbose=1,
-            train_freq=2,           # More frequent updates
-            gradient_steps=1,       # One gradient step per update
-            exploration_initial_eps=1.0,
-            exploration_final_eps=0.1,  # Higher final exploration
-            max_grad_norm=10,       # Clip gradients for stability
-            device='auto'           # Automatically use GPU if available
+            tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
+            policy_kwargs={
+                "net_arch": [512, 256],  # Keep larger first layer for feature extraction
+                "normalize_images": True  # Keep normalization for stability
+            },
+            train_freq=2,  # Balance between speed and learning (every 2 steps)
+            gradient_steps=1,  # Single gradient step for speed
+            verbose=1
         )
         
-        logger.info(f"Training Pong agent for {config.total_timesteps} timesteps...")
-        logger.info("This initial training will take about 10-15 minutes.")
-        logger.info("For better performance, you can increase total_timesteps to 250000 after this initial run.")
-        logger.info("Monitor progress in TensorBoard: tensorboard --logdir ./tensorboard")
-        
-        # Use our custom ProgressCallback for consistent progress tracking
+        # Add progress callback
         callback = ProgressCallback(config.total_timesteps)
         
-        try:
-            model.learn(
-                total_timesteps=config.total_timesteps,
-                callback=callback,
-                progress_bar=True,
-                log_interval=100    # More frequent logging
-            )
-        except Exception as e:
-            logger.error(f"Training failed: {e}")
-            raise
+        logger.info(f"Training {self.name} agent for {config.total_timesteps} timesteps...")
+        if config.tensorboard_log:
+            logger.info("Monitor progress in TensorBoard: tensorboard --logdir ./tensorboard")
+        
+        model.learn(
+            total_timesteps=config.total_timesteps,
+            callback=callback,
+            log_interval=config.log_interval
+        )
         
         # Save the model
-        model_path = Path("models/pong_final.zip")
+        model_path = Path(f"models/{self.name}_final.zip")
         model_path.parent.mkdir(parents=True, exist_ok=True)
         model.save(str(model_path))
         logger.info(f"Model saved to {model_path}")
@@ -172,10 +168,7 @@ class PongGame(GameInterface):
     
     def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
         """Evaluate a trained Pong model."""
-        # Create a single environment for evaluation
-        env = self._make_env(record=record)
-        
-        # Load the model
+        env = DummyVecEnv([lambda: self._make_env(record)])
         model = DQN.load(model_path, env=env)
         
         total_score = 0
@@ -188,7 +181,7 @@ class PongGame(GameInterface):
             logger.info("Recording evaluation videos to videos/evaluation/")
         
         for episode in range(episodes):
-            obs, _ = env.reset()
+            obs = env.reset()[0]
             done = False
             episode_score = 0
             episode_length = 0
@@ -196,9 +189,9 @@ class PongGame(GameInterface):
             while not done:
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, terminated, truncated, _ = env.step(action)
-                episode_score += reward
+                episode_score += reward[0]
                 episode_length += 1
-                done = terminated or truncated
+                done = terminated[0] or truncated[0]
             
             total_score += episode_score
             episode_lengths.append(episode_length)
