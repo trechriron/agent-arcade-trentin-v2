@@ -1,1 +1,1 @@
-/Users/jarrodbarnes/agent-arcade/contract/target/wasm32-unknown-unknown/release/agent_arcade.wasm: /Users/jarrodbarnes/agent-arcade/contract/src/lib.rs
+/Users/jarrodbarnes/agent-arcade/contract/target/wasm32-unknown-unknown/release/agent_arcade.wasm: /Users/jarrodbarnes/agent-arcade/contract/src/lib.rs /Users/jarrodbarnes/agent-arcade/contract/src/types/config.rs /Users/jarrodbarnes/agent-arcade/contract/src/types/mod.rs /Users/jarrodbarnes/agent-arcade/contract/src/types/stake.rs /Users/jarrodbarnes/agent-arcade/contract/src/types/state.rs

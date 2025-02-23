@@ -84,22 +84,8 @@ if ! pip install "torch>=2.3.0"; then
     exit 1
 fi
 
-# Install Gymnasium with Atari support first
-echo "Installing Gymnasium with Atari support..."
-if ! pip install "gymnasium[atari]>=0.29.1" "gymnasium[accept-rom-license]>=0.29.1"; then
-    echo "❌ Failed to install Gymnasium with Atari support."
-    exit 1
-fi
-
-# Install Gymnasium other dependencies (for video recording)
-echo "Installing Gymnasium video recording support..."
-if ! pip install "gymnasium[other]>=0.29.1"; then
-    echo "❌ Failed to install Gymnasium video recording support."
-    exit 1
-fi
-
-# Install ALE interface
-echo "Installing latest ALE-py..."
+# Install ALE-py first
+echo "Installing ALE-py..."
 if ! pip install "ale-py==0.10.1"; then
     echo "❌ Failed to install ALE interface."
     exit 1
@@ -107,8 +93,15 @@ fi
 
 # Install Shimmy for environment compatibility
 echo "Installing Shimmy..."
-if ! pip install "shimmy[atari]>=2.0.0"; then
+if ! pip install "shimmy[atari]==0.2.1"; then
     echo "❌ Failed to install Shimmy."
+    exit 1
+fi
+
+# Install Gymnasium with specific version
+echo "Installing Gymnasium..."
+if ! pip install "gymnasium[atari]==0.28.1" "gymnasium[accept-rom-license]==0.28.1" "gymnasium[other]==0.28.1"; then
+    echo "❌ Failed to install Gymnasium."
     exit 1
 fi
 
@@ -325,32 +318,34 @@ gym.register_envs(ale_py)
 
 def test_env(game_name):
     print(f'Testing {game_name}...')
-    env = gym.make(f'ALE/{game_name}-v5', render_mode='rgb_array')
-    env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
-    env = gym.wrappers.ResizeObservation(env, (84, 84))
-    env = gym.wrappers.FrameStackObservation(env, 4)
-    
-    obs, _ = env.reset()
-    assert isinstance(obs, np.ndarray), f'{game_name}: Invalid observation type'
-    print(f'Observation shape: {obs.shape}')  # Debug print
-    assert obs.shape == (4, 84, 84), f'{game_name}: Invalid observation shape, got {obs.shape}'
-    action = env.action_space.sample()
-    obs, reward, terminated, truncated, info = env.step(action)
-    assert isinstance(reward, float), f'{game_name}: Invalid reward type'
-    env.close()
-    print(f'✅ {game_name} ROM functional')
+    try:
+        env = gym.make(f'ALE/{game_name}-v5', render_mode='rgb_array')
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.FrameStackObservation(env, 4)
+        
+        obs, _ = env.reset()
+        assert isinstance(obs, np.ndarray), f'{game_name}: Invalid observation type'
+        print(f'Observation shape: {obs.shape}')
+        assert obs.shape == (4, 84, 84), f'{game_name}: Invalid observation shape, got {obs.shape}'
+        action = env.action_space.sample()
+        obs, reward, terminated, truncated, info = env.step(action)
+        assert isinstance(reward, float), f'{game_name}: Invalid reward type'
+        env.close()
+        print(f'✅ {game_name} ROM functional')
+    except Exception as e:
+        print(f'❌ {game_name} test failed: {str(e)}')
+        print('Try running: pip install gymnasium[atari]==0.28.1 ale-py==0.10.1 shimmy[atari]==0.2.1')
+        sys.exit(1)
 
 try:
     test_env('Pong')
     test_env('SpaceInvaders')
 except Exception as e:
     print(f'❌ ROM functionality test failed: {e}')
+    print('For troubleshooting steps, see docs/getting-started.md')
     sys.exit(1)
-" || {
-    echo "❌ ROM functionality test failed."
-    echo "Please ensure ROMs are correctly installed and compatible."
-    exit 1
-}
+"
 
 # Install the agent-arcade package
 echo "📥 Installing Agent Arcade..."
