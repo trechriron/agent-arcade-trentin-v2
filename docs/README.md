@@ -30,9 +30,15 @@ Welcome to the Agent Arcade documentation. This guide will help you train AI age
    - Competition rules
    - Reward system
 
+5. [Deployment Guide](deployment-guide.md)
+   - Contract deployment
+   - Game configuration
+   - Security features
+   - Monitoring and maintenance
+
 ### Advanced Topics
 
-5. [Adding New Games](adding-games.md)
+6. [Adding New Games](adding-games.md)
    - Game integration guide
    - Environment setup
    - Testing requirements
@@ -67,4 +73,5 @@ This documentation is regularly updated. Major sections:
 | CLI Reference | Feb 23, 2025 | Command documentation |
 | Training Guide | Feb 23, 2025 | Configuration, metrics |
 | Competition Guide | Feb 23, 2025 | NEAR integration |
+| Deployment Guide | Feb 23, 2025 | Contract deployment |
 | Adding Games | Feb 23, 2025 | Game development |

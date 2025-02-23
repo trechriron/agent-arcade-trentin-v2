@@ -21,8 +21,18 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
-use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault, Promise, BorshStorageKey, NearToken};
+use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault, Promise, BorshStorageKey, NearToken, require, log, Gas};
 use near_sdk::json_types::U128;
+
+mod types;
+
+#[cfg(test)]
+mod tests {
+    mod integration;
+    mod upgrade_tests;
+}
+
+pub use types::*;
 
 /// Balance type alias for U128 to represent NEAR token amounts
 pub type Balance = U128;
@@ -49,6 +59,8 @@ pub struct GameConfig {
     pub max_multiplier: u32,
     /// Whether the game is currently enabled for staking
     pub enabled: bool,
+    /// Rate limit for placing stakes
+    pub rate_limit: RateLimit,
 }
 
 /// Information about a user's active stake
@@ -65,6 +77,8 @@ pub struct StakeInfo {
     pub timestamp: u64,
     /// Number of game attempts made
     pub games_played: u32,
+    /// Timestamp of last evaluation
+    pub last_evaluation: u64,
 }
 
 /// Entry in the global leaderboard
@@ -103,6 +117,20 @@ pub struct AgentArcadeContract {
     pub leaderboard: UnorderedMap<AccountId, LeaderboardEntry>,
     /// Game configurations
     pub game_configs: UnorderedMap<String, GameConfig>,
+    /// Contract version
+    pub version: String,
+    /// Contract paused state
+    pub paused: bool,
+}
+
+/// Old contract state for migration
+#[derive(BorshDeserialize, BorshSerialize)]
+pub struct OldAgentArcadeContract {
+    pub owner_id: AccountId,
+    pub pool_balance: U128,
+    pub stakes: LookupMap<AccountId, StakeInfo>,
+    pub leaderboard: UnorderedMap<AccountId, LeaderboardEntry>,
+    pub game_configs: UnorderedMap<String, GameConfig>,
 }
 
 #[near_bindgen]
@@ -113,29 +141,52 @@ impl AgentArcadeContract {
     /// * `owner_id` - The account ID that will have administrative privileges
     #[init]
     pub fn new(owner_id: AccountId) -> Self {
+        require!(!env::state_exists(), "Already initialized");
         Self {
             owner_id,
-            pool_balance: U128(0),
+            paused: false,
+            version: env!("CARGO_PKG_VERSION").to_string(),
             stakes: LookupMap::new(StorageKey::Stakes),
-            leaderboard: UnorderedMap::new(StorageKey::Leaderboard),
             game_configs: UnorderedMap::new(StorageKey::GameConfigs),
+            leaderboard: UnorderedMap::new(StorageKey::Leaderboard),
+            pool_balance: U128(0),
         }
     }
 
-    /// Registers a new game or updates existing game configuration
-    /// 
-    /// # Arguments
-    /// * `game` - Game identifier (e.g., "pong")
-    /// * `min_score` - Minimum achievable score
-    /// * `max_score` - Maximum achievable score
-    /// * `min_stake` - Minimum stake amount in yoctoNEAR
-    /// * `max_multiplier` - Maximum reward multiplier
-    /// 
-    /// # Security
-    /// * Only callable by contract owner
+    /// Security check for owner-only functions
+    fn assert_owner(&self) {
+        require!(env::predecessor_account_id() == self.owner_id, "Unauthorized: owner only");
+    }
+
+    /// Emergency pause for contract functions
+    pub fn emergency_pause(&mut self) {
+        self.assert_owner();
+        require!(!self.paused, "Contract is already paused");
+        self.paused = true;
+        log!("Contract paused by owner");
+    }
+
+    /// Resume contract functions
+    pub fn resume(&mut self) {
+        self.assert_owner();
+        require!(self.paused, "Contract is not paused");
+        self.paused = false;
+        log!("Contract resumed by owner");
+    }
+
+    /// Register or update a game configuration
     #[payable]
-    pub fn register_game(&mut self, game: String, min_score: i32, max_score: i32, min_stake: Balance, max_multiplier: u32) {
-        assert_eq!(env::predecessor_account_id(), self.owner_id, "Only owner can register games");
+    pub fn register_game(
+        &mut self,
+        game: String,
+        min_score: i32,
+        max_score: i32,
+        min_stake: U128,
+        max_multiplier: u32,
+        rate_limit: RateLimit,
+    ) {
+        self.assert_owner();
+        require!(!self.paused, "Contract is paused");
         
         self.game_configs.insert(&game, &GameConfig {
             min_score,
@@ -143,52 +194,59 @@ impl AgentArcadeContract {
             min_stake,
             max_multiplier,
             enabled: true,
+            rate_limit,
         });
+        
+        log!("Game {} registered with config: min_score={}, max_score={}, min_stake={}, max_multiplier={}", 
+            game, min_score, max_score, min_stake.0, max_multiplier);
     }
 
-    /// Places a stake on achieving a target score in a game
-    /// 
-    /// # Arguments
-    /// * `game` - Game identifier
-    /// * `target_score` - Score the user aims to achieve
-    /// 
-    /// # Panics
-    /// * If game is not registered or disabled
-    /// * If stake amount is below minimum
-    /// * If target score is outside valid range
+    /// Place a stake on achieving a target score
     #[payable]
     pub fn place_stake(&mut self, game: String, target_score: i32) {
+        require!(!self.paused, "Contract is paused");
         let account_id = env::predecessor_account_id();
         let stake_amount = U128(env::attached_deposit().as_yoctonear());
         
-        // Get game config
+        // Validate game and stake
         let game_config = self.game_configs.get(&game)
             .expect("Game not registered");
-        assert!(game_config.enabled, "Game is disabled");
-        
-        // Validate stake
-        assert!(stake_amount.0 >= game_config.min_stake.0, "Stake amount too low");
-        assert!(
+        require!(game_config.enabled, "Game is disabled");
+        require!(stake_amount.0 >= game_config.min_stake.0, "Stake amount too low");
+        require!(
             target_score >= game_config.min_score && target_score <= game_config.max_score,
             "Invalid target score"
         );
-        assert!(self.stakes.get(&account_id).is_none(), "Active stake exists");
+        
+        // Check rate limits
+        let current_time = env::block_timestamp();
+        if let Some(existing_stake) = self.stakes.get(&account_id) {
+            require!(
+                current_time - existing_stake.last_evaluation 
+                >= game_config.rate_limit.min_hours_between_stakes as u64 * 3600_000_000_000,
+                "Rate limit: Too soon to place new stake"
+            );
+        }
 
         // Record stake
         self.stakes.insert(&account_id, &StakeInfo {
             game: game.clone(),
             amount: stake_amount,
             target_score,
-            timestamp: env::block_timestamp(),
+            timestamp: current_time,
             games_played: 0,
+            last_evaluation: current_time,
         });
+        
         self.pool_balance = U128(self.pool_balance.0 + stake_amount.0);
+        log!("Stake placed: {} NEAR on {} with target score {}", 
+            stake_amount.0 as f64 / 1e24, game, target_score);
     }
 
-    pub fn get_reward_multiplier(&self, game: &String, achieved_score: i32, target_score: i32) -> u32 {
+    /// Calculate reward multiplier based on achievement
+    fn get_reward_multiplier(&self, game: &String, achieved_score: i32, target_score: i32) -> u32 {
         let config = self.game_configs.get(game).expect("Game not found");
         
-        // Calculate multiplier based on achievement relative to target
         let score_ratio = (achieved_score as f64 / target_score as f64).abs();
         if score_ratio >= 1.0 {
             config.max_multiplier
@@ -201,16 +259,22 @@ impl AgentArcadeContract {
         }
     }
 
+    /// Submit and evaluate a stake result
     #[payable]
     pub fn evaluate_stake(&mut self, achieved_score: i32) -> Promise {
+        require!(!self.paused, "Contract is paused");
         let account_id = env::predecessor_account_id();
         let stake_info = self.stakes.get(&account_id).expect("No active stake");
         
-        // Get game config
-        let _game_config = self.game_configs.get(&stake_info.game)
-            .expect("Game config not found");
+        // Check rate limits
+        let current_time = env::block_timestamp();
+        let game_config = self.game_configs.get(&stake_info.game).expect("Game config not found");
+        require!(
+            (current_time - stake_info.last_evaluation) >= 3600_000_000_000 / game_config.rate_limit.max_evaluations_per_hour as u64,
+            "Rate limit: Too many evaluations per hour"
+        );
         
-        // Calculate reward using the stake's target_score
+        // Calculate reward
         let multiplier = self.get_reward_multiplier(
             &stake_info.game,
             achieved_score,
@@ -222,7 +286,7 @@ impl AgentArcadeContract {
             U128(0)
         };
 
-        // Update leaderboard with the correct target score
+        // Update leaderboard
         self.update_leaderboard(
             &account_id, 
             &stake_info.game, 
@@ -231,28 +295,32 @@ impl AgentArcadeContract {
             reward
         );
         
-        // Remove stake record
+        // Remove stake and update pool
         self.stakes.remove(&account_id);
-
         if reward.0 > 0 {
+            require!(reward.0 <= self.pool_balance.0, "Insufficient pool balance");
             self.pool_balance = U128(self.pool_balance.0 - reward.0);
+            log!("Stake evaluated: Score {} achieved, reward {} NEAR", 
+                achieved_score, reward.0 as f64 / 1e24);
             Promise::new(account_id).transfer(NearToken::from_yoctonear(reward.0))
         } else {
+            log!("Stake evaluated: Score {} achieved, no reward", achieved_score);
             Promise::new(account_id)
         }
     }
 
+    /// Update leaderboard with evaluation results
     fn update_leaderboard(
         &mut self, 
         account_id: &AccountId, 
         game: &String, 
         score: i32, 
         target_score: i32, 
-        earned: Balance
+        earned: U128
     ) {
         let mut entry = self.leaderboard.get(account_id).unwrap_or(LeaderboardEntry {
             account_id: account_id.clone(),
-            game: game.to_string(),
+            game: game.clone(),
             best_score: score,
             total_earned: U128(0),
             games_played: 0,
@@ -267,14 +335,14 @@ impl AgentArcadeContract {
         entry.games_played += 1;
         entry.last_played = env::block_timestamp();
         
-        // Calculate win rate based on game-specific criteria
+        // Calculate win rate
         let game_config = self.game_configs.get(game).expect("Game config not found");
         let win_threshold = (game_config.max_score as f64 * 0.7) as i32;
         let wins = if score >= win_threshold { 1 } else { 0 };
         entry.win_rate = ((entry.win_rate * (entry.games_played - 1) as f64) + wins as f64) 
             / entry.games_played as f64;
         
-        // Update highest reward multiplier using the correct target_score
+        // Update highest reward multiplier
         let current_multiplier = self.get_reward_multiplier(game, score, target_score);
         entry.highest_reward_multiplier = std::cmp::max(
             entry.highest_reward_multiplier,
@@ -298,25 +366,20 @@ impl AgentArcadeContract {
     #[payable]
     pub fn fund_pool(&mut self) -> U128 {
         // Only owner can fund pool
-        assert_eq!(
-            env::predecessor_account_id(),
-            self.owner_id,
-            "Only owner can fund pool"
-        );
+        self.assert_owner();
         
         // Get attached deposit
         let deposit = U128(env::attached_deposit().as_yoctonear());
-        assert!(deposit.0 > 0, "Deposit required to fund pool");
+        require!(deposit.0 > 0, "Deposit required to fund pool");
 
         // Update pool balance
         self.pool_balance = U128(self.pool_balance.0 + deposit.0);
         
         // Log the funding event
-        env::log_str(&format!(
-            "Pool funded with {} yoctoNEAR. New balance: {}",
-            deposit.0,
-            self.pool_balance.0
-        ));
+        log!("Pool funded with {} NEAR. New balance: {} NEAR", 
+            deposit.0 as f64 / 1e24,
+            self.pool_balance.0 as f64 / 1e24
+        );
 
         self.pool_balance
     }
@@ -360,5 +423,79 @@ impl AgentArcadeContract {
         self.leaderboard
             .get(&account_id)
             .filter(|entry| entry.game == game)
+    }
+
+    /// Upgrades the contract code and migrates state if necessary
+    /// Only callable by contract owner
+    #[private]
+    pub fn upgrade(&mut self, code: Vec<u8>) -> Promise {
+        require!(env::predecessor_account_id() == self.owner_id, "Only owner can upgrade");
+        require!(!self.paused, "Contract must not be paused during upgrade");
+        
+        // Store current state for migration
+        let state_data = borsh::to_vec(self).unwrap();
+        env::storage_write(b"STATE_BACKUP", &state_data);
+        
+        // Deploy new code
+        Promise::new(env::current_account_id())
+            .deploy_contract(code)
+            .function_call(
+                "migrate".to_string(),
+                Vec::new(),
+                NearToken::from_yoctonear(0),
+                Gas::from_tgas(30) // Use 30 TGas for migration
+            )
+    }
+
+    /// Migrates contract state after code upgrade
+    /// Only callable by the contract itself during upgrade
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        // Ensure called by the contract itself
+        require!(
+            env::predecessor_account_id() == env::current_account_id(),
+            "Migration can only be called by the contract"
+        );
+
+        // Load backed up state
+        let state_data = env::storage_read(b"STATE_BACKUP")
+            .expect("No state backup found");
+        
+        // Try to deserialize as current version
+        if let Ok(current_contract) = borsh::from_slice::<Self>(&state_data) {
+            // No migration needed
+            current_contract
+        } else {
+            // Attempt to deserialize as old version and migrate
+            let old_contract = borsh::from_slice::<OldAgentArcadeContract>(&state_data)
+                .expect("Failed to deserialize old contract state");
+            
+            // Migrate to new version
+            let new_contract = Self {
+                owner_id: old_contract.owner_id,
+                pool_balance: old_contract.pool_balance,
+                stakes: old_contract.stakes,
+                leaderboard: old_contract.leaderboard,
+                game_configs: old_contract.game_configs,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                paused: false,
+            };
+
+            // Clean up backup
+            env::storage_remove(b"STATE_BACKUP");
+
+            new_contract
+        }
+    }
+
+    /// Returns the current contract version
+    pub fn get_version(&self) -> String {
+        self.version.clone()
+    }
+
+    /// Checks if a contract upgrade is needed
+    pub fn needs_upgrade(&self) -> bool {
+        self.version != env!("CARGO_PKG_VERSION")
     }
 } 
