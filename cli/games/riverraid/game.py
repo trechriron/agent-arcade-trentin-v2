@@ -176,8 +176,7 @@ class RiverraidGame(GameInterface):
             train_freq=(4, "step"),       # Update every 4 steps
             gradient_steps=4,             # Multiple gradient steps per update
             verbose=1,
-            device="cuda",
-            optimize_memory_usage=True     # Memory optimization for H100
+            device="cuda"                 # Use GPU for training
         )
         
         # Add progress callback
