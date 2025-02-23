@@ -96,36 +96,90 @@ class SpaceInvadersGame(GameInterface):
         )
     
     def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
-        """Create the game environment."""
+        """Create the Space Invaders environment with proper wrappers."""
         if config is None:
             config = self.get_default_config()
         
+        render_mode = "human" if render else "rgb_array"
         env = gym.make(
             self.env_id,
-            render_mode='human' if render else 'rgb_array'
+            render_mode=render_mode
         )
         
         # Add standard Atari wrappers in correct order
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
-        env = FireResetEnv(env)  # Add FireResetEnv for Space Invaders
+        env = FireResetEnv(env)  # Space Invaders requires FIRE to start
         env = ClipRewardEnv(env)
         
         # Standard observation preprocessing to match SB3 Atari preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)  # Remove channel dim
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)  # Keep channel dim for stacking
         env = ScaleObservation(env)  # Scale to [0, 1]
         
+        # Debug observation space
+        logger.debug(f"Single env observation space: {env.observation_space}")
         return env
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
         """Train an agent for this game."""
         config = self.load_config(config_path)
         
+        def make_env():
+            env = self._make_env(render, config)
+            return env
+        
         # Create vectorized environment with parallel envs
-        env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(8)])
-        env = VecFrameStack(env, n_stack=4, channels_order='first')  # Change to channels_first
+        env = DummyVecEnv([make_env for _ in range(8)])
+        
+        # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
+        env = VecFrameStack(env, n_stack=config.frame_stack, channels_order='last')
+        
+        # Transpose to get (n_envs, n_stack, h, w)
+        from stable_baselines3.common.vec_env import VecEnvWrapper
+        
+        class TransposeVecObs(VecEnvWrapper):
+            """Transpose observation for compatibility with SB3."""
+            
+            def __init__(self, venv):
+                super().__init__(venv)
+                obs_shape = self.observation_space.shape
+                
+                # VecEnv always has batch dim first
+                # Input: (n_envs, h, w, n_stack)
+                # Output: (n_envs, n_stack, h, w)
+                self.observation_space = gym.spaces.Box(
+                    low=0, high=1,
+                    shape=(obs_shape[0], obs_shape[-1], obs_shape[1], obs_shape[2]),
+                    dtype=np.float32
+                )
+            
+            def reset(self):
+                obs = self.venv.reset()
+                if isinstance(obs, tuple):
+                    obs, info = obs
+                    return self._transpose_obs(obs), info
+                return self._transpose_obs(obs), {}
+            
+            def step_wait(self):
+                result = self.venv.step_wait()
+                if len(result) == 4:
+                    # Old gym API: obs, reward, done, info
+                    obs, reward, done, info = result
+                    return self._transpose_obs(obs), reward, done, False, info
+                else:
+                    # New gym API: obs, reward, terminated, truncated, info
+                    obs, reward, terminated, truncated, info = result
+                    return self._transpose_obs(obs), reward, terminated, truncated, info
+            
+            def _transpose_obs(self, obs):
+                return np.transpose(obs, (0, 3, 1, 2))
+        
+        env = TransposeVecObs(env)
+        
+        # Debug observation space
+        logger.debug(f"Final observation space: {env.observation_space}")
         
         # Create and train the model with optimized policy network
         model = DQN(
@@ -140,7 +194,7 @@ class SpaceInvadersGame(GameInterface):
             tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
                 "net_arch": [512, 512],
-                "normalize_images": False,  # Images are already normalized
+                "normalize_images": True,  # Enable normalization since we're using proper shape
                 "optimizer_class": torch.optim.Adam,
                 "optimizer_kwargs": {
                     "eps": 1e-5,
