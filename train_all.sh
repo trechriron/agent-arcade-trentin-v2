@@ -9,7 +9,7 @@ export OMP_NUM_THREADS=32
 export MKL_NUM_THREADS=32
 
 # Create necessary directories
-mkdir -p models/{pong,space_invaders,river_raid}/{checkpoints,videos}
+mkdir -p models/{pong,space_invaders,riverraid}/{checkpoints,videos}
 mkdir -p tensorboard
 
 echo "🎮 Starting Agent Arcade Training Pipeline"

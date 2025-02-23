@@ -52,7 +52,7 @@ class RiverraidGame(GameInterface):
         
     @property
     def env_id(self) -> str:
-        return "ALE/RiverRaid-v5"
+        return "ALE/RiverRaid-v5"  # Latest ALE version
         
     @property
     def description(self) -> str:
@@ -65,15 +65,39 @@ class RiverraidGame(GameInterface):
     @property
     def score_range(self) -> tuple[float, float]:
         return (0, 100000)  # River Raid scores can go very high
+    
+    def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
+        """Create the River Raid environment with proper wrappers."""
+        if config is None:
+            config = self.get_default_config()
         
-    def make_env(self):
-        """Create the game environment."""
-        return self._make_env()
+        render_mode = "human" if render else "rgb_array"
+        env = gym.make(self.env_id, render_mode=render_mode)
         
-    def load_model(self, model_path: str):
-        """Load a trained model."""
-        return DQN.load(model_path)
+        # Add standard Atari wrappers in correct order
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)  # Matches evaluation's frame_skip
+        env = EpisodicLifeEnv(env)
+        if "FIRE" in env.unwrapped.get_action_meanings():
+            env = FireResetEnv(env)
+        env = ClipRewardEnv(env)
         
+        # Observation preprocessing (in correct order)
+        env = gym.wrappers.ResizeObservation(env, (84, 84))  # Matches evaluation's observation_size
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)  # Keep channel dim for CNN
+        env = ScaleObservation(env)  # Scale to [0,1]
+        env = gym.wrappers.FrameStackObservation(env, config.frame_stack if config else 16)  # Match evaluation default
+        
+        # Add video recording if not rendering
+        if not render:
+            env = gym.wrappers.RecordVideo(
+                env,
+                f"models/{self.name}/videos",
+                episode_trigger=lambda x: x % 100 == 0
+            )
+        
+        return env
+    
     def get_default_config(self) -> GameConfig:
         """Get default configuration for the game."""
         return GameConfig(
@@ -84,37 +108,74 @@ class RiverraidGame(GameInterface):
             batch_size=2048,              # Large batches for GPU efficiency
             exploration_fraction=0.2,      # More exploration for complex strategies
             target_update_interval=2000,   # Less frequent updates for stability
-            frame_stack=16,               # Increased for better temporal info
-            policy="CnnPolicy",
+            frame_stack=16,               # Matches evaluation default
+            policy="CnnPolicy",           # Correct for image input
             tensorboard_log=True,
             log_interval=100              # Frequent logging
         )
     
-    def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
-        """Create the River Raid environment with proper wrappers."""
-        if config is None:
-            config = self.get_default_config()
+    def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
+        """Evaluate a trained model."""
+        # Load model metadata to get frame stack configuration
+        config = self.get_default_config()
+        metadata_path = model_path.parent / "metadata.json"
+        if metadata_path.exists():
+            import json
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+                if "hyperparameters" in metadata:
+                    config.frame_stack = metadata["hyperparameters"].get("frame_stack", 16)
+                    logger.debug(f"Using frame_stack={config.frame_stack} from metadata")
         
-        render_mode = "human" if render else "rgb_array"
-        env = gym.make(
-            self.env_id,
-            render_mode=render_mode
+        # Create environment with correct frame stack size
+        env = DummyVecEnv([lambda: self._make_env(record, config)])
+        model = DQN.load(model_path, env=env)
+        
+        total_score = 0
+        episode_lengths = []
+        episode_rewards = []
+        best_score = float('-inf')
+        successes = 0
+        
+        logger.info(f"Evaluating model for {episodes} episodes...")
+        logger.debug(f"Using frame stack size: {config.frame_stack}")
+        if record:
+            logger.info("Recording evaluation videos to videos/evaluation/")
+        
+        for episode in range(episodes):
+            obs = env.reset()[0]
+            done = False
+            episode_score = 0
+            episode_length = 0
+            
+            while not done:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, _ = env.step(action)
+                episode_score += reward[0]
+                episode_length += 1
+                done = terminated[0] or truncated[0]
+            
+            total_score += episode_score
+            episode_lengths.append(episode_length)
+            episode_rewards.append(episode_score)
+            best_score = max(best_score, episode_score)
+            if episode_score >= 1000.0:  # Success threshold
+                successes += 1
+            
+            logger.info(f"Episode {episode + 1}/{episodes} - Score: {episode_score:.2f}")
+        
+        env.close()
+        
+        result = EvaluationResult(
+            score=total_score / episodes,
+            episodes=episodes,
+            success_rate=successes / episodes,
+            best_episode_score=best_score,
+            avg_episode_length=sum(episode_lengths) / len(episode_lengths)
         )
         
-        # Add standard Atari wrappers in correct order
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)
-        env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():
-            env = FireResetEnv(env)
-        env = ClipRewardEnv(env)
-        
-        # Standard observation preprocessing
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env)
-        env = gym.wrappers.FrameStackObservation(env, 4)
-        
-        return env
+        logger.info(f"Evaluation complete - Average score: {result.score:.2f}")
+        return result
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
         """Train a River Raid agent."""
@@ -169,54 +230,6 @@ class RiverraidGame(GameInterface):
         logger.info(f"Model saved to {model_path}")
         
         return model_path
-    
-    def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
-        """Evaluate a trained model."""
-        env = DummyVecEnv([lambda: self._make_env(record)])
-        model = DQN.load(model_path, env=env)
-        
-        total_score = 0
-        episode_lengths = []
-        best_score = float('-inf')
-        successes = 0
-        
-        logger.info(f"Evaluating model for {episodes} episodes...")
-        if record:
-            logger.info("Recording evaluation videos to videos/evaluation/")
-        
-        for episode in range(episodes):
-            obs = env.reset()[0]
-            done = False
-            episode_score = 0
-            episode_length = 0
-            
-            while not done:
-                action, _ = model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, _ = env.step(action)
-                episode_score += reward[0]
-                episode_length += 1
-                done = terminated[0] or truncated[0]
-            
-            total_score += episode_score
-            episode_lengths.append(episode_length)
-            best_score = max(best_score, episode_score)
-            if episode_score >= 1000.0:  # Success threshold
-                successes += 1
-            
-            logger.info(f"Episode {episode + 1}/{episodes} - Score: {episode_score:.2f}")
-        
-        env.close()
-        
-        result = EvaluationResult(
-            score=total_score / episodes,
-            episodes=episodes,
-            success_rate=successes / episodes,
-            best_episode_score=best_score,
-            avg_episode_length=sum(episode_lengths) / len(episode_lengths)
-        )
-        
-        logger.info(f"Evaluation complete - Average score: {result.score:.2f}")
-        return result
     
     def get_score_range(self) -> tuple[float, float]:
         """Get valid score range for the game."""
