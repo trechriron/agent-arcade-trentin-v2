@@ -59,8 +59,7 @@ train_game() {
     if ! agent-arcade train $game \
         --config "models/${game}/config.yaml" \
         --output-dir "models/${game}" \
-        --checkpoint-freq 100000 \
-        --progress-bar; then
+        --checkpoint-freq 100000; then
         echo "❌ Training failed for $game"
         return 1
     fi
