@@ -3,7 +3,7 @@ import gymnasium as gym
 from pathlib import Path
 from typing import Optional, Tuple, Any
 from stable_baselines3 import DQN
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 from stable_baselines3.common.atari_wrappers import (
     NoopResetEnv,
     MaxAndSkipEnv,
@@ -67,28 +67,36 @@ class RiverraidGame(GameInterface):
         return (0, 100000)  # River Raid scores can go very high
     
     def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
-        """Create the River Raid environment with proper wrappers."""
+        """Create the game environment."""
         if config is None:
             config = self.get_default_config()
         
-        render_mode = "human" if render else "rgb_array"
-        env = gym.make(self.env_id, render_mode=render_mode)
+        def make_single_env():
+            env = gym.make(
+                self.env_id,
+                render_mode='human' if render else 'rgb_array'
+            )
+            
+            # Add standard Atari wrappers in correct order
+            env = NoopResetEnv(env, noop_max=30)
+            env = MaxAndSkipEnv(env, skip=4)
+            env = EpisodicLifeEnv(env)
+            env = ClipRewardEnv(env)
+            
+            # Standard observation preprocessing to match SB3 Atari preprocessing
+            env = gym.wrappers.ResizeObservation(env, (84, 84))
+            env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
+            env = ScaleObservation(env)  # Scale to [0, 1]
+            
+            return env
         
-        # Add standard Atari wrappers in correct order
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)  # Matches evaluation's frame_skip
-        env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():
-            env = FireResetEnv(env)
-        env = ClipRewardEnv(env)
+        # Create vectorized environment with frame stacking
+        env = DummyVecEnv([make_single_env])
         
-        # Observation preprocessing (in correct order)
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
-        env = ScaleObservation(env)  # Scale to [0,1]
-        env = gym.wrappers.FrameStackObservation(env, config.frame_stack if config else 16)
+        # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
+        env = VecFrameStack(env, n_stack=4, channels_order='first')
         
-        return env  # Removed video recording
+        return env
     
     def get_default_config(self) -> GameConfig:
         """Get default configuration for the game."""

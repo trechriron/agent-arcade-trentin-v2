@@ -96,24 +96,36 @@ class SpaceInvadersGame(GameInterface):
         )
     
     def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
-        """Create the game environment with proper wrappers."""
-        render_mode = "human" if render else "rgb_array"
-        env = gym.make("ALE/SpaceInvaders-v5", render_mode=render_mode)
+        """Create the game environment."""
+        if config is None:
+            config = self.get_default_config()
         
-        # Add standard Atari wrappers
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)
-        env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():
-            env = FireResetEnv(env)
+        def make_single_env():
+            env = gym.make(
+                self.env_id,
+                render_mode='human' if render else 'rgb_array'
+            )
+            
+            # Add standard Atari wrappers in correct order
+            env = NoopResetEnv(env, noop_max=30)
+            env = MaxAndSkipEnv(env, skip=4)
+            env = EpisodicLifeEnv(env)
+            env = ClipRewardEnv(env)
+            
+            # Standard observation preprocessing to match SB3 Atari preprocessing
+            env = gym.wrappers.ResizeObservation(env, (84, 84))
+            env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
+            env = ScaleObservation(env)  # Scale to [0, 1]
+            
+            return env
         
-        # Observation preprocessing (in correct order)
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
-        env = ScaleObservation(env)  # Scale to [0,1]
-        env = gym.wrappers.FrameStackObservation(env, config.frame_stack if config else 16)
+        # Create vectorized environment with frame stacking
+        env = DummyVecEnv([make_single_env])
         
-        return env  # Removed video recording
+        # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
+        env = VecFrameStack(env, n_stack=4, channels_order='first')
+        
+        return env
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
         """Train an agent for this game."""
