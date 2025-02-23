@@ -21,6 +21,8 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 - Using a neural network to approximate the optimal action-value function and make decisions based on the processed game state.
 - Storing and learning from past experiences (replay buffer) and improving through experience.
 
+> Interested in learning more about DQN? Check out the [DQN Explained](https://huggingface.co/blog/deep-rl-dqn) guide from Hugging Face.
+
 ### Training Process
 
 1. **Exploration Phase**: Agent tries random actions to discover the game mechanics
