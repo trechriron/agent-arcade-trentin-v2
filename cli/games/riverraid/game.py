@@ -9,7 +9,8 @@ from stable_baselines3.common.atari_wrappers import (
     MaxAndSkipEnv,
     EpisodicLifeEnv,
     FireResetEnv,
-    ClipRewardEnv
+    ClipRewardEnv,
+    TransposeObservation
 )
 from loguru import logger
 import numpy as np
@@ -81,9 +82,10 @@ class RiverraidGame(GameInterface):
         if config is None:
             config = self.get_default_config()
         
+        render_mode = "human" if render else "rgb_array"
         env = gym.make(
             self.env_id,
-            render_mode='human' if render else 'rgb_array'
+            render_mode=render_mode
         )
         
         # Add standard Atari wrappers in correct order
@@ -92,11 +94,16 @@ class RiverraidGame(GameInterface):
         env = EpisodicLifeEnv(env)
         env = ClipRewardEnv(env)
         
-        # Standard observation preprocessing to match SB3 Atari preprocessing
+        # Standard observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)  # Remove channel dim
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
         env = ScaleObservation(env)  # Scale to [0, 1]
         
+        # Transpose for PyTorch: (H, W, C) -> (C, H, W)
+        env = TransposeObservation(env)
+        
+        # Debug observation space
+        logger.debug(f"Single env observation space before vectorization: {env.observation_space}")
         return env
     
     def get_default_config(self) -> GameConfig:
@@ -119,11 +126,20 @@ class RiverraidGame(GameInterface):
         """Train an agent for this game."""
         config = self.load_config(config_path)
         
-        # Create vectorized environment with parallel envs
-        env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(8)])
-        env = VecFrameStack(env, n_stack=4, channels_order='first')  # Change to channels_first
+        def make_env():
+            env = self._make_env(render, config)
+            return env
         
-        # Create and train the model with optimized policy network
+        # Create vectorized environment with more parallel envs for H100
+        env = DummyVecEnv([make_env for _ in range(16)])  # Increased from 8 to 16
+        
+        # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
+        env = VecFrameStack(env, n_stack=4, channels_order='first')
+        
+        # Debug final observation space
+        logger.debug(f"Final observation space: {env.observation_space}")
+        
+        # Create and train the model with optimized policy network for H100
         model = DQN(
             "CnnPolicy",
             env,
@@ -135,7 +151,7 @@ class RiverraidGame(GameInterface):
             target_update_interval=config.target_update_interval,
             tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
-                "net_arch": [512, 512],
+                "net_arch": [1024, 1024],  # Larger network for H100
                 "normalize_images": False,  # Images are already normalized
                 "optimizer_class": torch.optim.Adam,
                 "optimizer_kwargs": {
@@ -143,8 +159,11 @@ class RiverraidGame(GameInterface):
                     "weight_decay": 1e-6
                 }
             },
+            train_freq=(4, "step"),       # Update every 4 steps
+            gradient_steps=4,             # Multiple gradient steps per update
             verbose=1,
-            device="cuda"
+            device="cuda",
+            optimize_memory_usage=True     # Memory optimization for H100
         )
         
         # Add progress callback
