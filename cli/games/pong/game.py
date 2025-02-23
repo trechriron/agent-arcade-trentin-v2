@@ -148,7 +148,6 @@ class PongGame(GameInterface):
             },
             train_freq=(8, "step"),      # Update every 8 steps
             gradient_steps=2,            # Two gradient steps per update
-            learning_starts=50000,       # More exploration
             target_update_interval=1000, # Standard updates
             verbose=1,
             device="cuda"               # Use GPU
