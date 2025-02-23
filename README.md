@@ -67,22 +67,30 @@ Optional Requirements (for staking):
 git clone https://github.com/jbarnes850/agent-arcade.git
 cd agent-arcade
 
-# Run the installation script
+# Step 1: Create virtual environment
 chmod +x ./install.sh
 ./install.sh
 
-# Optional: Install NEAR integration for staking (if not selected during installation)
-pip install -e ".[staking]"
+# Step 2: Activate virtual environment (this persists in your shell)
+source drl-env/bin/activate
+
+# Step 3: Install dependencies
+chmod +x ./install_in_venv.sh
+./install_in_venv.sh
 ```
 
-The installation script will:
+The installation process:
 
-- Set up a Python virtual environment
-- Install all required dependencies
-- Download and configure Atari ROMs
-- Install NEAR CLI (optional)
-- Create necessary directories
-- Verify the installation
+1. `install.sh` creates a Python virtual environment
+2. You activate the virtual environment manually (this persists in your shell)
+3. `install_in_venv.sh` installs all dependencies within the activated environment:
+   - Required Python packages
+   - Atari ROMs
+   - NEAR CLI and staking dependencies (if Node.js is available)
+   - Creates necessary directories
+   - Verifies the installation
+
+> **Note**: All NEAR staking dependencies are automatically installed. No additional steps required for staking functionality.
 
 For GPU support, an additional script is available:
 

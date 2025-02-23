@@ -21,21 +21,78 @@ git clone https://github.com/jbarnes850/agent-arcade.git
 cd agent-arcade
 ```
 
-2. **Run the Installation Script**:
+2. **Run the Installation Scripts**:
 
 ```bash
-chmod +x install.sh
+# Make scripts executable
+chmod +x install.sh install_in_venv.sh
+
+# Step 1: Create virtual environment
 ./install.sh
+
+# Step 2: Activate virtual environment (this persists in your shell)
+source drl-env/bin/activate
+
+# Step 3: Install dependencies
+./install_in_venv.sh
 ```
 
-The script will:
+The installation process is split into two scripts to ensure proper virtual environment activation:
 
-- Create a Python virtual environment
-- Install all required dependencies
-- Set up Atari ROMs
-- Install and configure NEAR CLI
+- `install.sh`: Creates a Python virtual environment
+- `install_in_venv.sh`: Runs inside the activated environment to install:
+  - All required Python packages
+  - Atari ROMs and dependencies
+  - NEAR CLI and staking dependencies (if Node.js is available)
+  - Creates necessary directories
+  - Verifies the complete installation
+
+> **Important**: The virtual environment must be activated manually between the scripts. This ensures the environment persists in your shell and dependencies are installed in the correct location.
+
+### Verifying NEAR Integration
+
+After installation, verify NEAR integration is working:
+
+```bash
+# Check NEAR CLI installation
+near --version
+
+# Check wallet integration
+agent-arcade wallet-cmd status
+
+# Verify staking dependencies
+python3 -c "from cli.core.wallet import NEARWallet; print('NEAR integration available')"
+```
+
+If you see any errors:
+1. Ensure Node.js is installed (v16 or higher)
+2. Try reinstalling NEAR CLI: `npm install -g near-cli`
+3. Verify staking dependencies: `pip install -e ".[staking]"`
 
 ## Troubleshooting Installation
+
+### Virtual Environment Issues
+
+If you see "Virtual environment not activated" error:
+
+1. **Verify Environment Creation**:
+   ```bash
+   # Check if drl-env directory exists
+   ls -la drl-env
+   ```
+
+2. **Activate Environment**:
+   ```bash
+   source drl-env/bin/activate
+   
+   # Verify activation
+   which python  # Should point to drl-env/bin/python
+   ```
+
+3. **Common Issues**:
+   - If `source` command not found: Use `. drl-env/bin/activate` instead
+   - If activation fails: Remove environment with `rm -rf drl-env` and start over
+   - If path issues: Use full path `source /path/to/drl-env/bin/activate`
 
 ### Python Version Issues
 
