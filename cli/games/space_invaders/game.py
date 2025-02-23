@@ -109,11 +109,12 @@ class SpaceInvadersGame(GameInterface):
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
+        env = FireResetEnv(env)  # Add FireResetEnv for Space Invaders
         env = ClipRewardEnv(env)
         
         # Standard observation preprocessing to match SB3 Atari preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)  # Remove channel dim
         env = ScaleObservation(env)  # Scale to [0, 1]
         
         return env
@@ -124,7 +125,7 @@ class SpaceInvadersGame(GameInterface):
         
         # Create vectorized environment with parallel envs
         env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(8)])
-        env = VecFrameStack(env, n_stack=4, channels_order='last')
+        env = VecFrameStack(env, n_stack=4, channels_order='first')  # Change to channels_first
         
         # Create and train the model with optimized policy network
         model = DQN(
