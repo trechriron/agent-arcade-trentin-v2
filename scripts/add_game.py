@@ -6,435 +6,427 @@ import argparse
 from pathlib import Path
 import gymnasium as gym
 from loguru import logger
+import numpy as np
+import torch
+import re
 
-TEMPLATE_GAME_PY = '''"""[GAME_NAME] implementation using ALE."""
-import gymnasium as gym
-from pathlib import Path
-from typing import Optional, Tuple, Any
-from stable_baselines3 import DQN
-from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
-from stable_baselines3.common.atari_wrappers import (
-    NoopResetEnv,
-    MaxAndSkipEnv,
-    EpisodicLifeEnv,
-    FireResetEnv,
-    ClipRewardEnv
+TEMPLATE_GAME_PY = (
+    '"""[GAME_NAME] implementation using ALE."""\n'
+    'import gymnasium as gym\n'
+    'from pathlib import Path\n'
+    'from typing import Optional, Tuple, Any\n'
+    'from stable_baselines3 import DQN\n'
+    'from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack\n'
+    'from stable_baselines3.common.atari_wrappers import (\n'
+    '    NoopResetEnv,\n'
+    '    MaxAndSkipEnv,\n'
+    '    EpisodicLifeEnv,\n'
+    '    FireResetEnv,\n'
+    '    ClipRewardEnv\n'
+    ')\n'
+    'from loguru import logger\n'
+    'import numpy as np\n'
+    'import torch\n\n'
+    'from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback\n\n'
+    'try:\n'
+    '    from cli.core.near import NEARWallet\n'
+    '    from cli.core.stake import StakeRecord\n'
+    '    NEAR_AVAILABLE = True\n'
+    'except ImportError:\n'
+    '    NEAR_AVAILABLE = False\n'
+    '    NEARWallet = Any  # Type alias for type hints\n\n'
+    'class ScaleObservation(gym.ObservationWrapper):\n'
+    '    """Scale observations to [0, 1]."""\n'
+    '    \n'
+    '    def __init__(self, env):\n'
+    '        super().__init__(env)\n'
+    '        self.observation_space = gym.spaces.Box(\n'
+    '            low=0, high=1,\n'
+    '            shape=self.observation_space.shape,\n'
+    '            dtype=np.float32\n'
+    '        )\n'
+    '    \n'
+    '    def observation(self, obs):\n'
+    '        return obs.astype(np.float32) / 255.0\n\n'
+    'class TransposeObservation(gym.ObservationWrapper):\n'
+    '    """Transpose observation for PyTorch CNN input."""\n'
+    '    \n'
+    '    def __init__(self, env):\n'
+    '        super().__init__(env)\n'
+    '        obs_shape = self.observation_space.shape\n'
+    '        self.observation_space = gym.spaces.Box(\n'
+    '            low=0, high=1,\n'
+    '            shape=(obs_shape[2], obs_shape[0], obs_shape[1]),\n'
+    '            dtype=np.float32\n'
+    '        )\n'
+    '    \n'
+    '    def observation(self, obs):\n'
+    '        return np.transpose(obs, (2, 0, 1))\n\n'
+    'class [CLASS_NAME](GameInterface):\n'
+    '    """[GAME_NAME] implementation."""\n'
+    '    \n'
+    '    def __call__(self):\n'
+    '        """Make the class callable to return itself."""\n'
+    '        return self\n'
+    '    \n'
+    '    @property\n'
+    '    def name(self) -> str:\n'
+    '        return "[GAME_ID]"\n'
+    '        \n'
+    '    @property\n'
+    '    def env_id(self) -> str:\n'
+    '        return "[ENV_ID]"\n'
+    '        \n'
+    '    @property\n'
+    '    def description(self) -> str:\n'
+    '        return "[GAME_DESCRIPTION]"\n'
+    '        \n'
+    '    @property\n'
+    '    def version(self) -> str:\n'
+    '        return "1.0.0"\n'
+    '        \n'
+    '    @property\n'
+    '    def score_range(self) -> tuple[float, float]:\n'
+    '        return ([MIN_SCORE], [MAX_SCORE])\n'
+    '        \n'
+    '    def get_score_range(self) -> tuple[float, float]:\n'
+    '        """Get valid score range for the game."""\n'
+    '        return self.score_range\n'
+    '        \n'
+    '    def make_env(self):\n'
+    '        """Create the game environment."""\n'
+    '        return self._make_env()\n'
+    '        \n'
+    '    def load_model(self, model_path: str):\n'
+    '        """Load a trained model."""\n'
+    '        return DQN.load(model_path)\n'
+    '        \n'
+    '    def get_default_config(self) -> GameConfig:\n'
+    '        """Get default configuration for the game."""\n'
+    '        return GameConfig(\n'
+    '            total_timesteps=5_000_000,    # Extended training for better strategies\n'
+    '            learning_rate=0.00025,        # Standard DQN learning rate\n'
+    '            buffer_size=1_000_000,        # Increased for H100 memory capacity\n'
+    '            learning_starts=50_000,       # More initial exploration\n'
+    '            batch_size=1024,              # Larger batches for H100\n'
+    '            exploration_fraction=0.2,      # More exploration for complex strategies\n'
+    '            target_update_interval=2000,   # Less frequent updates for stability\n'
+    '            frame_stack=4,                # Standard Atari frame stack\n'
+    '            policy="CnnPolicy",\n'
+    '            tensorboard_log=True,\n'
+    '            log_interval=100              # Frequent logging\n'
+    '        )\n'
+    '    \n'
+    '    def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:\n'
+    '        """Create the game environment with proper wrappers."""\n'
+    '        if config is None:\n'
+    '            config = self.get_default_config()\n'
+    '        \n'
+    '        render_mode = "human" if render else "rgb_array"\n'
+    '        env = gym.make(\n'
+    '            self.env_id,\n'
+    '            render_mode=render_mode\n'
+    '        )\n'
+    '        \n'
+    '        # Add standard Atari wrappers in correct order\n'
+    '        env = NoopResetEnv(env, noop_max=30)\n'
+    '        env = MaxAndSkipEnv(env, skip=4)\n'
+    '        env = EpisodicLifeEnv(env)\n'
+    '        if "FIRE" in env.unwrapped.get_action_meanings():\n'
+    '            env = FireResetEnv(env)\n'
+    '        env = ClipRewardEnv(env)\n'
+    '        \n'
+    '        # Standard observation preprocessing\n'
+    '        env = gym.wrappers.ResizeObservation(env, (84, 84))\n'
+    '        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)\n'
+    '        env = ScaleObservation(env)  # Scale to [0, 1]\n'
+    '        \n'
+    '        # Transpose for PyTorch: (H, W, C) -> (C, H, W)\n'
+    '        env = TransposeObservation(env)\n'
+    '        \n'
+    '        # Debug observation space\n'
+    '        logger.debug(f"Single env observation space before vectorization: {env.observation_space}")\n'
+    '        return env\n'
+    '    \n'
+    '    def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:\n'
+    '        """Train an agent for this game."""\n'
+    '        config = self.load_config(config_path)\n'
+    '        \n'
+    '        def make_env():\n'
+    '            env = self._make_env(render, config)\n'
+    '            return env\n'
+    '        \n'
+    '        # Create vectorized environment with more parallel envs for H100\n'
+    '        env = DummyVecEnv([make_env for _ in range(16)])  # Increased from 8 to 16\n'
+    '        \n'
+    '        # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)\n'
+    '        env = VecFrameStack(env, n_stack=4, channels_order=\'first\')\n'
+    '        \n'
+    '        # Debug final observation space\n'
+    '        logger.debug(f"Final observation space: {env.observation_space}")\n'
+    '        \n'
+    '        # Create and train the model with optimized policy network for H100\n'
+    '        model = DQN(\n'
+    '            "CnnPolicy",\n'
+    '            env,\n'
+    '            learning_rate=config.learning_rate,\n'
+    '            buffer_size=config.buffer_size,\n'
+    '            learning_starts=config.learning_starts,\n'
+    '            batch_size=config.batch_size,\n'
+    '            exploration_fraction=config.exploration_fraction,\n'
+    '            target_update_interval=config.target_update_interval,\n'
+    '            tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,\n'
+    '            policy_kwargs={\n'
+    '                "net_arch": [1024, 1024],  # Larger network for H100\n'
+    '                "normalize_images": False,  # Images are already normalized\n'
+    '                "optimizer_class": torch.optim.Adam,\n'
+    '                "optimizer_kwargs": {\n'
+    '                    "eps": 1e-5,\n'
+    '                    "weight_decay": 1e-6\n'
+    '                }\n'
+    '            },\n'
+    '            train_freq=(4, "step"),       # Update every 4 steps\n'
+    '            gradient_steps=4,             # Multiple gradient steps per update\n'
+    '            verbose=1,\n'
+    '            device="cuda",\n'
+    '            optimize_memory_usage=True     # Memory optimization for H100\n'
+    '        )\n'
+    '        \n'
+    '        # Add progress callback\n'
+    '        callback = ProgressCallback(config.total_timesteps)\n'
+    '        \n'
+    '        logger.info(f"Training {self.name} agent for {config.total_timesteps} timesteps...")\n'
+    '        if config.tensorboard_log:\n'
+    '            logger.info("Monitor progress in TensorBoard: tensorboard --logdir ./tensorboard")\n'
+    '        \n'
+    '        model.learn(\n'
+    '            total_timesteps=config.total_timesteps,\n'
+    '            callback=callback,\n'
+    '            log_interval=config.log_interval\n'
+    '        )\n'
+    '        \n'
+    '        # Save the model\n'
+    '        model_path = Path(f"models/{self.name}/baseline/final_model.zip")\n'
+    '        model_path.parent.mkdir(parents=True, exist_ok=True)\n'
+    '        model.save(str(model_path))\n'
+    '        logger.info(f"Model saved to {model_path}")\n'
+    '        \n'
+    '        return model_path\n'
+    '    \n'
+    '    def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:\n'
+    '        """Evaluate a trained model."""\n'
+    '        # Load model metadata to get frame stack configuration\n'
+    '        config = self.get_default_config()\n'
+    '        metadata_path = model_path.parent / "metadata.json"\n'
+    '        if metadata_path.exists():\n'
+    '            import json\n'
+    '            with open(metadata_path) as f:\n'
+    '                metadata = json.load(f)\n'
+    '                if "hyperparameters" in metadata:\n'
+    '                    config.frame_stack = metadata["hyperparameters"].get("frame_stack", 16)\n'
+    '                    logger.debug(f"Using frame_stack={config.frame_stack} from metadata")\n'
+    '        \n'
+    '        # Create environment with correct frame stack size\n'
+    '        env = DummyVecEnv([lambda: self._make_env(record, config)])\n'
+    '        env = VecFrameStack(env, n_stack=4, channels_order=\'first\')\n'
+    '        model = DQN.load(model_path, env=env)\n'
+    '        \n'
+    '        total_score = 0\n'
+    '        episode_lengths = []\n'
+    '        best_score = float(\'-inf\')\n'
+    '        successes = 0\n'
+    '        \n'
+    '        logger.info(f"Evaluating model for {episodes} episodes...")\n'
+    '        logger.debug(f"Using frame stack size: {config.frame_stack}")\n'
+    '        if record:\n'
+    '            logger.info("Recording evaluation videos to videos/evaluation/")\n'
+    '        \n'
+    '        for episode in range(episodes):\n'
+    '            obs = env.reset()[0]\n'
+    '            done = False\n'
+    '            episode_score = 0\n'
+    '            episode_length = 0\n'
+    '            \n'
+    '            while not done:\n'
+    '                action, _ = model.predict(obs, deterministic=True)\n'
+    '                obs, reward, terminated, truncated, info = env.step(action)\n'
+    '                episode_score += reward[0]\n'
+    '                episode_length += 1\n'
+    '                done = terminated[0] or truncated[0]\n'
+    '                \n'
+    '                # Track success using info dict for consistency with evaluation.py\n'
+    '                if isinstance(info, (list, tuple)):\n'
+    '                    info = info[0]  # Get first env\'s info\n'
+    '                if isinstance(info, dict) and info.get("is_success", False):\n'
+    '                    successes += 1\n'
+    '                elif episode_score > 100:  # Fallback success criteria\n'
+    '                    successes += 1\n'
+    '            \n'
+    '            total_score += episode_score\n'
+    '            episode_lengths.append(episode_length)\n'
+    '            best_score = max(best_score, episode_score)\n'
+    '            \n'
+    '            logger.info(f"Episode {episode + 1}/{episodes} - Score: {episode_score:.2f}")\n'
+    '        \n'
+    '        env.close()\n'
+    '        \n'
+    '        result = EvaluationResult(\n'
+    '            score=total_score / episodes,\n'
+    '            episodes=episodes,\n'
+    '            success_rate=successes / episodes,\n'
+    '            best_episode_score=best_score,\n'
+    '            avg_episode_length=sum(episode_lengths) / len(episode_lengths)\n'
+    '        )\n'
+    '        \n'
+    '        logger.info(f"Evaluation complete - Average score: {result.score:.2f}")\n'
+    '        return result\n'
+    '    \n'
+    '    def validate_model(self, model_path: Path) -> bool:\n'
+    '        """Validate model file."""\n'
+    '        try:\n'
+    '            env = DummyVecEnv([lambda: self._make_env()])\n'
+    '            env = VecFrameStack(env, n_stack=4, channels_order=\'first\')\n'
+    '            DQN.load(model_path, env=env)\n'
+    '            return True\n'
+    '        except Exception as e:\n'
+    '            logger.error(f"Invalid model file: {e}")\n'
+    '            return False\n'
+    '    \n'
+    '    async def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:\n'
+    '        """Stake NEAR on performance."""\n'
+    '        if not NEAR_AVAILABLE:\n'
+    '            raise RuntimeError("NEAR integration not available")\n'
+    '            \n'
+    '        if not wallet.is_logged_in():\n'
+    '            raise ValueError("Must be logged in to stake")\n'
+    '        \n'
+    '        if not self.validate_model(model_path):\n'
+    '            raise ValueError("Invalid model file")\n'
+    '        \n'
+    '        # Verify target score is within range\n'
+    '        min_score, max_score = self.score_range\n'
+    '        if not min_score <= target_score <= max_score:\n'
+    '            raise ValueError(f"Target score must be between {min_score} and {max_score}")\n'
+    '        \n'
+    '        # Use staking module\n'
+    '        await stake_on_game(\n'
+    '            wallet=wallet,\n'
+    '            game_name=self.name,\n'
+    '            model_path=model_path,\n'
+    '            amount=amount,\n'
+    '            target_score=target_score,\n'
+    '            score_range=self.score_range\n'
+    '        )\n'
+    '\n'
+    'def register():\n'
+    '    """Register the game."""\n'
+    '    from cli.games import register_game\n'
+    '    register_game([CLASS_NAME])'
 )
-from loguru import logger
-
-from cli.games.base import GameInterface, GameConfig, EvaluationResult
-
-try:
-    from cli.core.near import NEARWallet
-    from cli.core.stake import StakeRecord
-    NEAR_AVAILABLE = True
-except ImportError:
-    NEAR_AVAILABLE = False
-    NEARWallet = Any  # Type alias for type hints
-
-class [CLASS_NAME](GameInterface):
-    """[GAME_NAME] implementation."""
-    
-    @property
-    def name(self) -> str:
-        return "[GAME_ID]"
-    
-    @property
-    def description(self) -> str:
-        return "[GAME_DESCRIPTION]"
-    
-    @property
-    def version(self) -> str:
-        return "1.0.0"
-    
-    def _make_env(self, render: bool = False) -> gym.Env:
-        """Create the game environment with proper wrappers."""
-        render_mode = "human" if render else "rgb_array"
-        env = gym.make("[ENV_ID]", render_mode=render_mode, frameskip=4)
-        
-        # Add standard Atari wrappers
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)
-        env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():
-            env = FireResetEnv(env)
-        
-        # Observation preprocessing
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
-        env = gym.wrappers.FrameStackObservation(env, 4)
-        
-        # Add video recording wrapper if using rgb_array rendering
-        if not render:
-            env = gym.wrappers.RecordVideo(
-                env,
-                "videos/training",
-                episode_trigger=lambda x: x % 100 == 0  # Record every 100th episode
-            )
-        
-        return env
-    
-    def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
-        """Train agent."""
-        config = self.load_config(config_path)
-        
-        # Create vectorized environment
-        env = DummyVecEnv([lambda: self._make_env(render)])
-        env = VecFrameStack(env, config.frame_stack)
-        
-        # Create and train the model
-        model = DQN(
-            "CnnPolicy",
-            env,
-            learning_rate=config.learning_rate,
-            buffer_size=config.buffer_size,
-            learning_starts=config.learning_starts,
-            batch_size=config.batch_size,
-            exploration_fraction=config.exploration_fraction,
-            target_update_interval=config.target_update_interval,
-            tensorboard_log=f"./tensorboard/{self.name}"
-        )
-        
-        logger.info(f"Training {self.name} agent for {config.total_timesteps} timesteps...")
-        model.learn(total_timesteps=config.total_timesteps)
-        
-        # Save the model
-        model_path = Path(f"models/{self.name}_final.zip")
-        model_path.parent.mkdir(parents=True, exist_ok=True)
-        model.save(str(model_path))
-        logger.info(f"Model saved to {model_path}")
-        
-        return model_path
-    
-    def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
-        """Evaluate a trained model."""
-        env = DummyVecEnv([lambda: self._make_env(record)])
-        env = VecFrameStack(env, 4)
-        
-        model = DQN.load(model_path, env=env)
-        
-        total_score = 0
-        episode_lengths = []
-        best_score = float('-inf')
-        successes = 0
-        
-        for episode in range(episodes):
-            obs = env.reset()[0]
-            done = False
-            episode_score = 0
-            episode_length = 0
-            
-            while not done:
-                action, _ = model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, _ = env.step(action)
-                episode_score += reward[0]
-                episode_length += 1
-                done = terminated[0] or truncated[0]
-            
-            total_score += episode_score
-            episode_lengths.append(episode_length)
-            best_score = max(best_score, episode_score)
-            if episode_score >= [SUCCESS_THRESHOLD]:  # Success threshold
-                successes += 1
-        
-        return EvaluationResult(
-            score=total_score / episodes,
-            episodes=episodes,
-            success_rate=successes / episodes,
-            best_episode_score=best_score,
-            avg_episode_length=sum(episode_lengths) / len(episode_lengths)
-        )
-    
-    def get_default_config(self) -> GameConfig:
-        """Get default configuration."""
-        return GameConfig(
-            total_timesteps=1000000,
-            learning_rate=0.00025,
-            buffer_size=250000,
-            learning_starts=50000,
-            batch_size=256,
-            exploration_fraction=0.2,
-            target_update_interval=2000,
-            frame_stack=4
-        )
-    
-    def get_score_range(self) -> Tuple[float, float]:
-        """Get score range."""
-        return ([MIN_SCORE], [MAX_SCORE])
-    
-    def validate_model(self, model_path: Path) -> bool:
-        """Validate model file."""
-        try:
-            env = DummyVecEnv([lambda: self._make_env()])
-            DQN.load(model_path, env=env)
-            return True
-        except Exception as e:
-            logger.error(f"Invalid model file: {e}")
-            return False
-    
-    def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
-        """Stake NEAR on performance."""
-        if not NEAR_AVAILABLE:
-            raise NotImplementedError("NEAR integration is not available. Install py_near to enable staking.")
-            
-        if not wallet.is_logged_in():
-            raise ValueError("Must be logged in to stake")
-        
-        if not self.validate_model(model_path):
-            raise ValueError("Invalid model file")
-        
-        # Verify target score is within range
-        min_score, max_score = self.get_score_range()
-        if not min_score <= target_score <= max_score:
-            raise ValueError(f"Target score must be between {min_score} and {max_score}")
-        
-        # Create stake record
-        stake_record = StakeRecord(
-            game=self.name,
-            model_path=str(model_path),
-            amount=amount,
-            target_score=target_score
-        )
-        
-        # Record stake
-        wallet.record_stake(stake_record)
-        logger.info(f"Successfully staked {amount} NEAR on achieving score {target_score}")
 
 def register():
     """Register the game."""
     from cli.games import register_game
-    register_game("[GAME_ID]", [CLASS_NAME])
-'''
+    register_game([CLASS_NAME])
 
-TEMPLATE_INIT_PY = '''"""[GAME_NAME] package."""
-from .game import register
+def validate_game_id(game_id: str) -> bool:
+    """Validate game ID format."""
+    return bool(re.match(r'^[a-z0-9_]+$', game_id))
 
-__all__ = ["register"]
-'''
+def validate_class_name(class_name: str) -> bool:
+    """Validate class name format."""
+    return bool(re.match(r'^[A-Z][a-zA-Z0-9]*Game$', class_name))
 
-TEMPLATE_CONFIG_YAML = '''# [GAME_NAME] Training Configuration
-
-# Training parameters
-total_timesteps: 1000000  # Total training steps
-learning_rate: 0.00025    # Learning rate for optimization
-buffer_size: 250000       # Size of replay buffer
-learning_starts: 50000    # Steps before starting learning
-batch_size: 256          # Batch size for training
-exploration_fraction: 0.2 # Fraction of training for exploration
-target_update_interval: 2000  # Steps between target network updates
-frame_stack: 4           # Number of frames to stack
-
-# Environment settings
-env_id: "[ENV_ID]"
-frame_skip: 4            # Number of frames to skip
-noop_max: 30            # Max random no-ops at start
-
-# Model architecture
-policy: "CnnPolicy"      # Policy network type
-features_extractor: "NatureCNN"  # CNN architecture
-features_dim: 512       # Feature dimension
-
-# Preprocessing
-normalize_images: true   # Normalize pixel values
-grayscale: true         # Convert to grayscale
-resize_shape: [84, 84]  # Input image size
-
-# Evaluation settings
-eval_episodes: 100      # Episodes for evaluation
-eval_deterministic: true # Use deterministic actions
-render_eval: false      # Render during evaluation
-
-# Logging
-tensorboard_log: true   # Enable TensorBoard logging
-save_freq: 100000       # Save frequency in timesteps
-log_interval: 1000      # Logging interval in timesteps
-'''
-
-def validate_env_id(env_id: str) -> bool:
-    """Validate that the environment ID exists and can be properly initialized in Gymnasium.
-    
-    Args:
-        env_id: The Gymnasium environment ID to validate
-        
-    Returns:
-        bool: Whether the environment is valid and properly configured
-    """
-    try:
-        # Register ALE environments first
-        import ale_py
-        gym.register_envs(ale_py)
-        
-        # Create environment
-        env = gym.make(env_id, render_mode='rgb_array')
-        logger.info(f"Successfully created environment: {env_id}")
-        
-        # Test observation preprocessing
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
-        env = gym.wrappers.FrameStackObservation(env, 4)
-        
-        # Verify observation shape
-        obs, _ = env.reset()
-        if obs.shape != (4, 84, 84):
-            logger.error(f"Invalid observation shape: {obs.shape}, expected (4, 84, 84)")
-            return False
-            
-        # Test action space
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
-        
-        env.close()
-        logger.info("✅ Environment validation successful")
-        return True
-        
-    except ImportError as e:
-        if "py_near" in str(e):
-            # NEAR integration is optional, continue with validation
-            logger.debug("NEAR integration not available")
-            return True
-        logger.error(f"Missing required package: {e}")
-        logger.info("Try installing: pip install 'gymnasium[atari]' 'ale-py' 'shimmy[atari]' 'autorom'")
-        return False
-    except Exception as e:
-        logger.error(f"Environment validation failed: {e}")
-        if "Namespace ALE not found" in str(e):
-            logger.info("Try running: python3 -c 'import gymnasium as gym; import ale_py; gym.register_envs(ale_py)'")
-        elif "ROM file" in str(e):
-            logger.info("Try installing ROMs: python -m AutoROM --accept-license")
-        return False
-
-def verify_rom_installation(game_name: str) -> bool:
-    """Verify that the ROM for a specific game is installed.
-    
-    Args:
-        game_name: Name of the game to verify
-        
-    Returns:
-        bool: Whether the ROM is properly installed
-    """
-    try:
-        import ale_py
-        from pathlib import Path
-        
-        # Convert game name to ROM filename
-        rom_name = game_name.lower() + ".bin"
-        
-        # Check ROM directory
-        rom_dir = Path(ale_py.__file__).parent / "roms"
-        rom_path = rom_dir / rom_name
-        
-        if not rom_path.exists():
-            logger.error(f"ROM file not found: {rom_path}")
-            logger.info("Available ROMs:")
-            for rom in sorted(rom_dir.glob("*.bin")):
-                logger.info(f"  - {rom.name}")
-            logger.info("\nTry reinstalling ROMs: python -m AutoROM --accept-license")
-            return False
-            
-        logger.info(f"✅ ROM file found: {rom_path}")
-        return True
-        
-    except ImportError as e:
-        logger.error(f"Missing required package: {e}")
-        logger.info("Try installing: pip install 'ale-py' 'autorom'")
-        return False
-    except Exception as e:
-        logger.error(f"ROM verification failed: {e}")
-        return False
-
-def create_game_files(game_name: str, env_id: str, description: str, 
-                     min_score: float, max_score: float, success_threshold: float):
-    """Create all necessary files for a new game."""
-    # Verify ROM installation first
-    if not verify_rom_installation(game_name):
-        logger.error("ROM verification failed. Please fix ROM installation before proceeding.")
-        sys.exit(1)
-    
-    # Convert game name to different formats
-    game_id = game_name.lower().replace(" ", "-")
-    class_name = "".join(word.capitalize() for word in game_name.split()) + "Game"
-    
-    # Create directories
-    game_dir = Path(f"cli/games/{game_id}")
+def create_game_files(game_id: str, class_name: str, env_id: str, description: str, min_score: float, max_score: float) -> None:
+    """Create game implementation files."""
+    # Create game directory
+    game_dir = Path('cli/games') / game_id
     game_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create game.py
-    game_content = TEMPLATE_GAME_PY.replace("[GAME_NAME]", game_name)
-    game_content = game_content.replace("[CLASS_NAME]", class_name)
-    game_content = game_content.replace("[GAME_ID]", game_id)
-    game_content = game_content.replace("[ENV_ID]", env_id)
-    game_content = game_content.replace("[GAME_DESCRIPTION]", description)
-    game_content = game_content.replace("[MIN_SCORE]", str(min_score))
-    game_content = game_content.replace("[MAX_SCORE]", str(max_score))
-    game_content = game_content.replace("[SUCCESS_THRESHOLD]", str(success_threshold))
-    
-    with open(game_dir / "game.py", "w") as f:
-        f.write(game_content)
-    
     # Create __init__.py
-    init_content = TEMPLATE_INIT_PY.replace("[GAME_NAME]", game_name)
-    with open(game_dir / "__init__.py", "w") as f:
-        f.write(init_content)
+    init_path = game_dir / '__init__.py'
+    init_path.write_text(f'"""Game module for {game_id}."""\nfrom .game import {class_name}\n')
     
-    # Create config file
-    config_content = TEMPLATE_CONFIG_YAML.replace("[GAME_NAME]", game_name)
-    config_content = config_content.replace("[ENV_ID]", env_id)
+    # Create game.py with template
+    game_path = game_dir / 'game.py'
+    game_content = TEMPLATE_GAME_PY.replace('[GAME_NAME]', game_id.replace('_', ' ').title())
+    game_content = game_content.replace('[CLASS_NAME]', class_name)
+    game_content = game_content.replace('[GAME_ID]', game_id)
+    game_content = game_content.replace('[ENV_ID]', env_id)
+    game_content = game_content.replace('[GAME_DESCRIPTION]', description)
+    game_content = game_content.replace('[MIN_SCORE]', str(min_score))
+    game_content = game_content.replace('[MAX_SCORE]', str(max_score))
+    game_path.write_text(game_content)
     
-    config_dir = Path("configs")
-    config_dir.mkdir(exist_ok=True)
-    with open(config_dir / f"{game_id}.yaml", "w") as f:
-        f.write(config_content)
+    # Create model directories
+    model_dir = Path('models') / game_id
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / 'baseline').mkdir(exist_ok=True)
+    (model_dir / 'checkpoints').mkdir(exist_ok=True)
     
-    logger.info(f"Successfully created game files for {game_name}")
-    logger.info(f"Game implementation: {game_dir}")
-    logger.info(f"Configuration: configs/{game_id}.yaml")
+    # Create tensorboard directory
+    tensorboard_dir = Path('tensorboard') / game_id
+    tensorboard_dir.mkdir(parents=True, exist_ok=True)
     
-    # Add note about NEAR integration
-    try:
-        import py_near
-        logger.info("NEAR integration is available for staking")
-    except ImportError:
-        logger.info("Note: NEAR integration is not available. Install py_near package to enable staking functionality.")
+    # Create video directories
+    video_dir = Path('videos') / game_id
+    video_dir.mkdir(parents=True, exist_ok=True)
+    (video_dir / 'training').mkdir(exist_ok=True)
+    (video_dir / 'evaluation').mkdir(exist_ok=True)
+    
+    logger.info(f"Created game files for {game_id} in {game_dir}")
+    logger.info(f"Created model directories in {model_dir}")
+    logger.info(f"Created tensorboard directory in {tensorboard_dir}")
+    logger.info(f"Created video directories in {video_dir}")
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Add a new ALE game to Agent Arcade")
-    parser.add_argument("game_name", help="Name of the game (e.g., 'Breakout')")
-    parser.add_argument("env_id", help="Gymnasium environment ID (e.g., 'ALE/Breakout-v5')")
-    parser.add_argument("description", help="Short description of the game")
-    parser.add_argument("--min-score", type=float, required=True, help="Minimum possible score")
-    parser.add_argument("--max-score", type=float, required=True, help="Maximum possible score")
-    parser.add_argument("--success-threshold", type=float, required=True, 
-                      help="Score threshold for considering an episode successful")
+    if len(sys.argv) != 7:
+        print("Usage: python add_game.py <game_id> <class_name> <env_id> <description> <min_score> <max_score>")
+        print("Example: python add_game.py space_invaders SpaceInvadersGame ALE/SpaceInvaders-v5 'Space Invaders game' -100 1000")
+        sys.exit(1)
     
-    args = parser.parse_args()
+    game_id = sys.argv[1]
+    class_name = sys.argv[2]
+    env_id = sys.argv[3]
+    description = sys.argv[4]
     
-    # Validate environment ID
-    if not validate_env_id(args.env_id):
-        logger.error(f"Invalid environment ID: {args.env_id}")
+    try:
+        min_score = float(sys.argv[5])
+        max_score = float(sys.argv[6])
+    except ValueError:
+        logger.error("Min and max scores must be numbers")
+        sys.exit(1)
+    
+    # Validate inputs
+    if not validate_game_id(game_id):
+        logger.error("Invalid game ID. Must be lowercase with underscores only.")
+        sys.exit(1)
+    
+    if not validate_class_name(class_name):
+        logger.error("Invalid class name. Must be PascalCase and end with 'Game'.")
+        sys.exit(1)
+    
+    if not env_id.startswith('ALE/'):
+        logger.error("Invalid env ID. Must start with 'ALE/'.")
+        sys.exit(1)
+    
+    if min_score >= max_score:
+        logger.error("Min score must be less than max score.")
         sys.exit(1)
     
     # Create game files
     try:
-        create_game_files(
-            args.game_name,
-            args.env_id,
-            args.description,
-            args.min_score,
-            args.max_score,
-            args.success_threshold
-        )
+        create_game_files(game_id, class_name, env_id, description, min_score, max_score)
+        logger.info(f"Successfully added {game_id} to Agent Arcade!")
+        logger.info(f"Next steps:")
+        logger.info(f"1. Review the generated files in cli/games/{game_id}/")
+        logger.info(f"2. Test the game with: python -m cli.games.{game_id}.game")
+        logger.info(f"3. Train an agent with: python -m cli train {game_id}")
+        logger.info(f"4. Evaluate the agent with: python -m cli evaluate {game_id}")
     except Exception as e:
         logger.error(f"Failed to create game files: {e}")
         sys.exit(1)
-    
-    logger.info("\nNext steps:")
-    logger.info("1. Review and customize the game implementation")
-    logger.info("2. Adjust hyperparameters in the config file")
-    logger.info("3. Test the implementation:")
-    logger.info("   agent-arcade list-games  # Verify registration")
-    logger.info("   agent-arcade train your-game-name --render")
-    logger.info("   agent-arcade evaluate your-game-name --model models/your_game_name_final.zip")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main() 

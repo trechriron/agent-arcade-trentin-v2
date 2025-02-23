@@ -4,37 +4,38 @@ This guide walks you through the process of adding a new Atari Learning Environm
 
 ## Prerequisites
 
-1. **Install Agent Arcade**
+1. **System Requirements**:
+   - Python: Version 3.9 - 3.12 (3.13 not yet supported)
+   - Operating System: Linux, macOS, or WSL2 on Windows
+   - Storage: At least 2GB free space
+   - Memory: At least 4GB RAM recommended
+   - GPU: Optional, but recommended for faster training
+
+2. **Required Packages**:
 
 ```bash
-# Clone the repository
-git clone https://github.com/jbarnes850/agent-arcade.git
-cd agent-arcade
+# Core dependencies
+pip install "torch>=2.3.0"
+pip install "ale-py==0.10.1"
+pip install "shimmy[atari]==0.2.1"
+pip install "gymnasium[atari]==0.28.1" "gymnasium[accept-rom-license]==0.28.1"
+pip install "stable-baselines3[extra]>=2.5.0"
+pip install "standard-imghdr>=3.13.0"  # For TensorBoard compatibility
+pip install "autorom>=0.6.1"
 
-# Run installation script
-./install.sh
+# Install Atari ROMs
+python -m AutoROM --accept-license
 ```
 
-The installation script will:
+3. **Optional Dependencies** (for staking):
+   - Node.js & npm (v16 or higher)
+   - NEAR CLI: `npm install -g near-cli`
+   - NEAR Account (for staking and competitions)
 
-- Set up a Python virtual environment
-- Install all required dependencies
-- Configure ALE and Atari ROMs
-- Set up NEAR CLI integration (optional)
-
-2. **Verify ALE Installation**
+4. **Verify Installation**:
 
 ```bash
-# Activate virtual environment (if not already active)
-source drl-env/bin/activate
-
-# Verify required packages
-pip list | grep -E "gymnasium|ale-py|shimmy|autorom"
-
-# Install dependencies if needed
-pip install "gymnasium[atari]>=0.29.1" "ale-py==0.10.1" "shimmy[atari]>=2.0.0" "autorom>=0.6.1"
-
-# Test ALE environment registration and creation
+# Test environment creation
 python3 -c "
 import gymnasium as gym
 import ale_py
@@ -59,11 +60,11 @@ print('✅ Environment creation successful')
 
 # Test observation preprocessing
 env = gym.wrappers.ResizeObservation(env, (84, 84))
-env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
-env = gym.wrappers.FrameStackObservation(env, 4)
+env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
+env = gym.wrappers.FrameStack(env, 4)
 obs, _ = env.reset()
-print(f'Observation shape: {obs.shape}')  # Should be (4, 84, 84)
-print('✅ Observation preprocessing verified')
+print(f'Observation shape: {obs.shape}')
+env.close()
 "
 
 # Verify CLI works
@@ -115,11 +116,29 @@ We provide two ways to add a new game:
 source drl-env/bin/activate
 
 # Add a new game (example: Breakout)
-python scripts/add_game.py "Breakout" "ALE/Breakout-v5" "Classic brick-breaking arcade game" \
-    --min-score 0 \
-    --max-score 864 \
-    --success-threshold 100
+python scripts/add_game.py breakout BreakoutGame ALE/Breakout-v5 "Classic brick-breaking game" 0 864
+
+# Command format:
+# python scripts/add_game.py <game_id> <class_name> <env_id> <description> <min_score> <max_score>
+
+# The script will:
+# 1. Create game implementation with optimized wrappers
+# 2. Set up proper directory structure:
+#    - models/{game_id}/baseline/
+#    - models/{game_id}/checkpoints/
+#    - tensorboard/{game_id}/
+#    - videos/{game_id}/{training,evaluation}/
+# 3. Configure TensorBoard logging
+# 4. Set up video recording directories
+# 5. Provide next steps for testing and training
 ```
+
+The script validates:
+
+- Game ID format (lowercase with underscores)
+- Class name format (PascalCase ending with 'Game')
+- ALE environment ID format
+- Score range validity
 
 ### Option 2: Manual Setup
 
@@ -137,58 +156,109 @@ touch configs/your_game_name.yaml
 
 ## Environment Setup
 
-The environment setup is crucial for proper training. Here's the standard wrapper stack used in Agent Arcade:
+The environment setup is crucial for proper training. Here's the optimized wrapper stack used in Agent Arcade:
 
 ```python
-def _make_env(self, render: bool = False) -> gym.Env:
+def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
     """Create the game environment with proper wrappers."""
-    render_mode = "human" if render else "rgb_array"
-    env = gym.make("[ENV_ID]", render_mode=render_mode, frameskip=4)
+    if config is None:
+        config = self.get_default_config()
     
-    # Add standard Atari wrappers
+    render_mode = "human" if render else "rgb_array"
+    env = gym.make(
+        self.env_id,
+        render_mode=render_mode
+    )
+    
+    # Add standard Atari wrappers in correct order
     env = NoopResetEnv(env, noop_max=30)
     env = MaxAndSkipEnv(env, skip=4)
     env = EpisodicLifeEnv(env)
     if "FIRE" in env.unwrapped.get_action_meanings():
         env = FireResetEnv(env)
+    env = ClipRewardEnv(env)
     
-    # Observation preprocessing
+    # Standard observation preprocessing
     env = gym.wrappers.ResizeObservation(env, (84, 84))
-    env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
-    env = gym.wrappers.FrameStackObservation(env, 4)
+    env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
+    env = ScaleObservation(env)  # Scale to [0, 1]
     
-    # Add video recording wrapper if using rgb_array rendering
-    if not render:
-        env = gym.wrappers.RecordVideo(
-            env,
-            "videos/training",
-            episode_trigger=lambda x: x % 100 == 0  # Record every 100th episode
-        )
+    # Transpose for PyTorch: (H, W, C) -> (C, H, W)
+    env = TransposeObservation(env)
     
+    # Debug observation space
+    logger.debug(f"Single env observation space before vectorization: {env.observation_space}")
     return env
+
+def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
+    """Train an agent for this game."""
+    config = self.load_config(config_path)
+    
+    def make_env():
+        env = self._make_env(render, config)
+        return env
+    
+    # Create vectorized environment with more parallel envs for H100
+    env = DummyVecEnv([make_env for _ in range(16)])  # Increased from 8 to 16
+    
+    # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
+    env = VecFrameStack(env, n_stack=4, channels_order='first')
+    
+    # Create and train the model with optimized policy network for H100
+    model = DQN(
+        "CnnPolicy",
+        env,
+        learning_rate=config.learning_rate,
+        buffer_size=config.buffer_size,
+        learning_starts=config.learning_starts,
+        batch_size=config.batch_size,
+        exploration_fraction=config.exploration_fraction,
+        target_update_interval=config.target_update_interval,
+        tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
+        policy_kwargs={
+            "net_arch": [1024, 1024],  # Larger network for H100
+            "normalize_images": False,  # Images are already normalized
+            "optimizer_class": torch.optim.Adam,
+            "optimizer_kwargs": {
+                "eps": 1e-5,
+                "weight_decay": 1e-6
+            }
+        },
+        train_freq=(4, "step"),       # Update every 4 steps
+        gradient_steps=4,             # Multiple gradient steps per update
+        verbose=1,
+        device="cuda",
+        optimize_memory_usage=True     # Memory optimization for H100
+    )
 ```
 
 ### Wrapper Explanation
 
 1. **Base Environment**:
-   - `frameskip=4`: Process every 4th frame for efficiency
-   - `render_mode`: "human" for visualization, "rgb_array" for training
+   - Uses ALE v5 environments with optimized defaults
+   - Configurable render mode for training/visualization
 
 2. **Atari-specific Wrappers**:
-   - `NoopResetEnv`: Random number of no-ops at start
-   - `MaxAndSkipEnv`: Frame skipping and max pooling
+   - `NoopResetEnv`: Random number of no-ops at start (noop_max=30)
+   - `MaxAndSkipEnv`: Frame skipping with max pooling (skip=4)
    - `EpisodicLifeEnv`: End episode on life loss
-   - `FireResetEnv`: Press FIRE to start games that require it
+   - `FireResetEnv`: Press FIRE to start (game-dependent)
+   - `ClipRewardEnv`: Reward normalization
 
 3. **Observation Processing**:
    - `ResizeObservation`: Resize to 84x84 pixels
-   - `GrayscaleObservation`: Convert to grayscale (keep_dim=False)
-   - `FrameStackObservation`: Stack 4 frames for temporal information
+   - `GrayscaleObservation`: Convert to grayscale (keep_dim=True)
+   - `ScaleObservation`: Normalize pixels to [0, 1]
+   - `TransposeObservation`: PyTorch channel ordering (C, H, W)
 
-4. **Recording** (during training):
-   - `RecordVideo`: Save episode videos for visualization
+4. **H100 Optimizations**:
+   - 16 parallel environments for better GPU utilization
+   - Larger network architecture [1024, 1024]
+   - Memory optimizations enabled
+   - Efficient batch size and gradient steps
+   - Adam optimizer with weight decay
 
-The final observation shape will be `(4, 84, 84)` representing 4 stacked grayscale frames.
+The final observation shape will be `(n_envs, n_stack, 84, 84)` for training.
 
 ## Step-by-Step Guide
 
@@ -395,42 +465,44 @@ __all__ = ["register"]
 Create `configs/your_game_name.yaml`:
 
 ```yaml
-# [Game Name] Training Configuration
-
 # Training parameters
-total_timesteps: 1000000  # Total training steps
-learning_rate: 0.00025    # Learning rate for optimization
-buffer_size: 250000       # Size of replay buffer
-learning_starts: 50000    # Steps before starting learning
-batch_size: 256          # Batch size for training
-exploration_fraction: 0.2 # Fraction of training for exploration
-target_update_interval: 2000  # Steps between target network updates
-frame_stack: 4           # Number of frames to stack
+total_timesteps: 5_000_000    # Extended training for better strategies
+learning_rate: 0.00025        # Standard DQN learning rate
+buffer_size: 1_000_000        # Increased for H100 memory capacity
+learning_starts: 50_000       # More initial exploration
+batch_size: 1024              # Larger batches for H100
+exploration_fraction: 0.2      # More exploration for complex strategies
+target_update_interval: 2000   # Less frequent updates for stability
+frame_stack: 4                # Standard Atari frame stack
 
 # Environment settings
-env_id: "ALE/YourGame-v5"
-frame_skip: 4            # Number of frames to skip
-noop_max: 30            # Max random no-ops at start
+env_id: "ALE/YourGame-v5"     # Latest ALE version
+frame_skip: 4                 # Process every 4th frame
+noop_max: 30                 # Random no-ops at start
 
 # Model architecture
-policy: "CnnPolicy"      # Policy network type
-features_extractor: "NatureCNN"  # CNN architecture
-features_dim: 512       # Feature dimension
+policy: "CnnPolicy"
+net_arch: [1024, 1024]       # Larger network for H100
+normalize_images: false       # Images already normalized
+optimizer_class: "torch.optim.Adam"
+optimizer_kwargs:
+  eps: 1e-5
+  weight_decay: 1e-6
 
-# Preprocessing
-normalize_images: true   # Normalize pixel values
-grayscale: true         # Convert to grayscale
-resize_shape: [84, 84]  # Input image size
+# Training optimizations
+train_freq: [4, "step"]      # Update every 4 steps
+gradient_steps: 4            # Multiple gradient steps per update
+optimize_memory_usage: true  # Memory optimization for H100
 
 # Evaluation settings
-eval_episodes: 100      # Episodes for evaluation
-eval_deterministic: true # Use deterministic actions
-render_eval: false      # Render during evaluation
+eval_episodes: 100
+eval_deterministic: true
+render_eval: false
 
 # Logging
-tensorboard_log: true   # Enable TensorBoard logging
-save_freq: 100000       # Save frequency in timesteps
-log_interval: 1000      # Logging interval in timesteps
+tensorboard_log: true
+save_freq: 100000
+log_interval: 100
 ```
 
 ## Key Considerations
