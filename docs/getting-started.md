@@ -390,3 +390,87 @@ pip install -e ".[staking]"
 # Verify RPC connection
 agent-arcade wallet-cmd status
 ```
+
+### Installation Troubleshooting
+
+#### Common Issues
+
+1. **ALE Namespace Not Found Error**
+
+If you encounter this error:
+```
+gymnasium.error.NamespaceNotFound: Namespace ALE not found. Have you installed the proper package for ALE?
+```
+
+This is typically caused by a version mismatch. Follow these steps to fix:
+
+```bash
+# 1. Deactivate and remove existing environment
+deactivate
+rm -rf drl-env
+
+# 2. Create fresh environment
+python3 -m venv drl-env
+source drl-env/bin/activate
+
+# 3. Install dependencies in correct order
+pip install "torch>=2.3.0"
+pip install "ale-py==0.10.1"
+pip install "shimmy[atari]==0.2.1"
+pip install "gymnasium[atari]==0.28.1"
+pip install "stable-baselines3[extra]>=2.5.0"
+
+# 4. Install AutoROM
+pip install "autorom>=0.6.1"
+AutoROM --accept-license
+
+# 5. Verify installation
+python3 -c "
+import gymnasium as gym
+import ale_py
+
+# Register ALE environments
+gym.register_envs(ale_py)
+
+# Test environment creation
+env = gym.make('ALE/Pong-v5')
+print('✅ Environment created successfully')
+env.close()
+"
+```
+
+The key is installing the packages in the correct order with specific versions that are known to work together.
+
+2. **Version Compatibility Matrix**
+
+For reference, here are the tested compatible versions:
+
+| Package | Version |
+|---------|---------|
+| Python | 3.9 - 3.12 |
+| Gymnasium | 0.28.1 |
+| ALE-py | 0.10.1 |
+| Shimmy | 0.2.1 |
+| PyTorch | >=2.3.0 |
+| Stable-Baselines3 | >=2.5.0 |
+
+3. **ROM Installation Issues**
+
+If ROMs aren't being found:
+
+```bash
+# Check ROM installation path
+python3 -c "import ale_py; print(ale_py.get_roms_path())"
+
+# Manually install ROMs if needed
+AutoROM --accept-license
+```
+
+4. **Python Version Issues**
+
+```bash
+# Check Python version
+python3 --version  # Should be between 3.9 and 3.12
+```
+
+For more detailed troubleshooting, see our [GitHub issues](https://github.com/jbarnes850/agent-arcade/issues) or join our [Discord community](https://discord.gg/near).
