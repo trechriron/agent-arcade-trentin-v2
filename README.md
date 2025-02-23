@@ -152,7 +152,11 @@ tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
 
 ### Evaluating Agents
 
-> **Important**: Frame stacking varies by game (Pong: 4 frames, Space Invaders/River Raid: 16 frames). Ensure your model and environment configurations match.
+> **Important**: You must be logged in with your NEAR wallet before running evaluations:
+
+```bash
+agent-arcade wallet-cmd login
+```
 
 ```bash
 # Basic evaluation

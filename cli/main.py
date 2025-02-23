@@ -265,7 +265,7 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bo
         config = EvaluationConfig(
             n_eval_episodes=episodes,
             render=render,
-            verbose=verbose,
+            verbose=1,  # Set default verbosity level
             record_video=record
         )
         

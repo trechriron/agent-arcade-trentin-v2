@@ -24,7 +24,11 @@ setup(
             "aiohttp>=3.8.0",
             "requests>=2.31.0",
             "base58>=2.1.1",
-            "cryptography>=42.0.0"
+            "cryptography>=42.0.0",
+            "py_near>=1.1.50",
+            "ed25519>=1.5",
+            "httpx>=0.26.0",
+            "py-near-primitives>=0.2.3"
         ]
     },
     entry_points={

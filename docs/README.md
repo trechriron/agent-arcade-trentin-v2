@@ -36,6 +36,17 @@ Welcome to the Agent Arcade documentation. This guide will help you train AI age
    - Security features
    - Monitoring and maintenance
 
+### Important Note
+
+Before evaluating models or participating in competitions, you must log in with your NEAR wallet:
+```bash
+# Login to NEAR wallet (required before evaluation)
+agent-arcade wallet-cmd login
+
+# Verify login status
+agent-arcade wallet-cmd status
+```
+
 ### Advanced Topics
 
 6. [Adding New Games](adding-games.md)
