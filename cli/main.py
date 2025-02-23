@@ -645,9 +645,7 @@ def train(game: str, render: bool, config: Optional[str], output_dir: Optional[s
         config_path = Path(config) if config else None
         model_path = game_instance.train(
             render=render,
-            config_path=config_path,
-            output_dir=output_path,
-            checkpoint_freq=checkpoint_freq
+            config_path=config_path
         )
         
         # Show next steps

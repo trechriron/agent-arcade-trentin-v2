@@ -38,6 +38,7 @@ agent_arcade.egg-info/
 .DS_Store
 .coverage
 .cursor
+.pytest_cache/
 
 # --------------------------
 # Rust and Cargo artifacts

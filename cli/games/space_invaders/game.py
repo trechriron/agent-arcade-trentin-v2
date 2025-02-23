@@ -3,7 +3,7 @@ import gymnasium as gym
 from pathlib import Path
 from typing import Optional, Tuple, Any
 from stable_baselines3 import DQN
-from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
+from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.atari_wrappers import (
     NoopResetEnv,
     MaxAndSkipEnv,
@@ -12,6 +12,8 @@ from stable_baselines3.common.atari_wrappers import (
     ClipRewardEnv
 )
 from loguru import logger
+import numpy as np
+import torch
 
 from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback
 
@@ -23,6 +25,20 @@ try:
 except ImportError:
     NEAR_AVAILABLE = False
     NEARWallet = Any  # Type alias for type hints
+
+class ScaleObservation(gym.ObservationWrapper):
+    """Scale observations to [0, 1]."""
+    
+    def __init__(self, env):
+        super().__init__(env)
+        self.observation_space = gym.spaces.Box(
+            low=0, high=1,
+            shape=self.observation_space.shape,
+            dtype=np.float32
+        )
+    
+    def observation(self, obs):
+        return obs.astype(np.float32) / 255.0
 
 class SpaceInvadersGame(GameInterface):
     """Space Invaders game implementation."""
@@ -57,11 +73,7 @@ class SpaceInvadersGame(GameInterface):
         
     def make_env(self):
         """Create the game environment."""
-        env = gym.make(self.env_id, render_mode='rgb_array')
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env)
-        env = gym.wrappers.FrameStackObservation(env, 4)
-        return env
+        return self._make_env()
         
     def load_model(self, model_path: str):
         """Load a trained model."""
@@ -70,99 +82,94 @@ class SpaceInvadersGame(GameInterface):
     def get_default_config(self) -> GameConfig:
         """Get default configuration for the game."""
         return GameConfig(
-            total_timesteps=1_000_000,
-            learning_rate=0.00025,
-            buffer_size=250_000,
-            learning_starts=50_000,
-            batch_size=256,
-            exploration_fraction=0.2,
-            target_update_interval=2000,
-            frame_stack=4
+            total_timesteps=5_000_000,    # Extended training for better strategies
+            learning_rate=0.00025,        # Standard DQN learning rate
+            buffer_size=1_000_000,        # Large buffer for diverse experiences
+            learning_starts=100_000,      # Substantial exploration period
+            batch_size=2048,              # Large batches for GPU efficiency
+            exploration_fraction=0.2,      # More exploration for complex strategies
+            target_update_interval=2000,   # Less frequent updates for stability
+            frame_stack=16,               # Increased for better temporal info
+            policy="CnnPolicy",
+            tensorboard_log=True,
+            log_interval=100              # Frequent logging
         )
     
-    def _make_env(self, render: bool = False, record: bool = False) -> gym.Env:
+    def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
         """Create the Space Invaders environment with proper wrappers."""
-        # Use human rendering only when explicitly requested
-        render_mode = "human" if render else "rgb_array"
-        env = gym.make(self.env_id, render_mode=render_mode, frameskip=4)
+        if config is None:
+            config = self.get_default_config()
         
-        # Add standard Atari wrappers
+        render_mode = "human" if render else "rgb_array"
+        env = gym.make(
+            self.env_id,
+            render_mode=render_mode
+        )
+        
+        # Add standard Atari wrappers in correct order
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
         env = FireResetEnv(env)
-        env = ClipRewardEnv(env)  # Add reward clipping for stability
+        env = ClipRewardEnv(env)
         
-        # Observation preprocessing
+        # Standard observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=False)
+        env = gym.wrappers.GrayscaleObservation(env)
         env = gym.wrappers.FrameStackObservation(env, 4)
-        
-        # Add video recording only when explicitly requested
-        if record and not render:
-            env = gym.wrappers.RecordVideo(
-                env,
-                "videos/training",
-                episode_trigger=lambda x: x % 100 == 0  # Record every 100th episode
-            )
         
         return env
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
-        """Train a Space Invaders agent."""
+        """Train an agent for this game."""
         config = self.load_config(config_path)
         
-        # Create vectorized environment without recording
-        env = DummyVecEnv([lambda: self._make_env(render, record=False) for _ in range(4)])  # Use 4 envs for stability
-        env = VecFrameStack(env, config.frame_stack)
+        # Create vectorized environment with parallel envs
+        env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(16)])
         
-        # Create and train the model with optimized parameters for faster learning
+        # Create and train the model with optimized policy network
         model = DQN(
             "CnnPolicy",
             env,
-            learning_rate=0.0001,  # Reduced learning rate for stability
-            buffer_size=50000,     # Smaller buffer for memory efficiency
-            learning_starts=1000,   # Start learning very early
-            batch_size=32,         # Small batches for faster updates
-            exploration_fraction=0.1,  # Faster exploration decay
-            target_update_interval=1000,  # More frequent target updates
-            tensorboard_log="./tensorboard/space_invaders",
-            verbose=1,
-            train_freq=4,          # Update every 4 steps
-            gradient_steps=1,      # One gradient step per update
-            exploration_initial_eps=1.0,
-            exploration_final_eps=0.05,  # Lower final exploration
-            max_grad_norm=10,
-            device='auto',
+            learning_rate=config.learning_rate,
+            buffer_size=config.buffer_size,
+            learning_starts=config.learning_starts,
+            batch_size=config.batch_size,
+            exploration_fraction=config.exploration_fraction,
+            target_update_interval=config.target_update_interval,
+            tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
-                "net_arch": [256, 128],  # Smaller network architecture
-                "normalize_images": True  # Normalize inputs for stability
-            }
+                "net_arch": [1024, 512],  # Larger network for complex patterns
+                "normalize_images": True,  # Input normalization
+                "optimizer_class": torch.optim.Adam,
+                "optimizer_kwargs": {
+                    "eps": 1e-5,
+                    "weight_decay": 1e-6
+                }
+            },
+            train_freq=(16, "step"),     # Update every 16 steps
+            gradient_steps=4,            # Multiple gradient steps
+            learning_starts=100000,      # Extended exploration
+            target_update_interval=2000, # Less frequent updates
+            verbose=1,
+            device="cuda"               # Use GPU
         )
         
-        # Reduce total timesteps for faster training
-        total_timesteps = 250000  # ~30-45 minutes of training
+        # Add progress callback
+        callback = ProgressCallback(config.total_timesteps)
         
-        logger.info(f"Training Space Invaders agent for {total_timesteps} timesteps...")
-        logger.info("This training should take about 30-45 minutes.")
-        logger.info("Monitor progress in TensorBoard: tensorboard --logdir ./tensorboard")
+        logger.info(f"Training {self.name} agent for {config.total_timesteps} timesteps...")
+        if config.tensorboard_log:
+            logger.info("Monitor progress in TensorBoard: tensorboard --logdir ./tensorboard")
         
-        # Use our custom ProgressCallback for consistent progress tracking
-        callback = ProgressCallback(total_timesteps)
-        
-        try:
-            model.learn(
-                total_timesteps=total_timesteps,
-                callback=callback,
-                progress_bar=True,
-                log_interval=100
-            )
-        except Exception as e:
-            logger.error(f"Training failed: {e}")
-            raise
+        model.learn(
+            total_timesteps=config.total_timesteps,
+            callback=callback,
+            log_interval=config.log_interval
+        )
         
         # Save the model
-        model_path = Path("models/space_invaders_final.zip")
+        model_path = Path(f"models/{self.name}_final.zip")
         model_path.parent.mkdir(parents=True, exist_ok=True)
         model.save(str(model_path))
         logger.info(f"Model saved to {model_path}")
@@ -172,14 +179,16 @@ class SpaceInvadersGame(GameInterface):
     def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
         """Evaluate a trained Space Invaders model."""
         env = DummyVecEnv([lambda: self._make_env(record)])
-        env = VecFrameStack(env, 4)
-        
         model = DQN.load(model_path, env=env)
         
         total_score = 0
         episode_lengths = []
         best_score = float('-inf')
         successes = 0
+        
+        logger.info(f"Evaluating model for {episodes} episodes...")
+        if record:
+            logger.info("Recording evaluation videos to videos/evaluation/")
         
         for episode in range(episodes):
             obs = env.reset()[0]
@@ -199,14 +208,21 @@ class SpaceInvadersGame(GameInterface):
             best_score = max(best_score, episode_score)
             if episode_score > 100:  # Consider scoring over 100 as success
                 successes += 1
+            
+            logger.info(f"Episode {episode + 1}/{episodes} - Score: {episode_score:.2f}")
         
-        return EvaluationResult(
+        env.close()
+        
+        result = EvaluationResult(
             score=total_score / episodes,
             episodes=episodes,
             success_rate=successes / episodes,
             best_episode_score=best_score,
             avg_episode_length=sum(episode_lengths) / len(episode_lengths)
         )
+        
+        logger.info(f"Evaluation complete - Average score: {result.score:.2f}")
+        return result
     
     def validate_model(self, model_path: Path) -> bool:
         """Validate Space Invaders model file."""
