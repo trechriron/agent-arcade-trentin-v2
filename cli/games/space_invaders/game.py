@@ -84,9 +84,9 @@ class SpaceInvadersGame(GameInterface):
         return GameConfig(
             total_timesteps=5_000_000,    # Extended training for better strategies
             learning_rate=0.00025,        # Standard DQN learning rate
-            buffer_size=100_000,          # Reduced for memory efficiency
-            learning_starts=10_000,       # Adjusted for smaller buffer
-            batch_size=512,               # Reduced for memory efficiency
+            buffer_size=1_000_000,        # Increased for H100 memory capacity
+            learning_starts=50_000,       # More initial exploration
+            batch_size=1024,              # Larger batches for H100
             exploration_fraction=0.2,      # More exploration for complex strategies
             target_update_interval=2000,   # Less frequent updates for stability
             frame_stack=4,                # Standard Atari frame stack
@@ -113,10 +113,15 @@ class SpaceInvadersGame(GameInterface):
         env = FireResetEnv(env)  # Space Invaders requires FIRE to start
         env = ClipRewardEnv(env)
         
-        # Standard observation preprocessing to match ALE documentation
+        # Standard observation preprocessing
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)  # Keep channel dim for stacking
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
         env = ScaleObservation(env)  # Scale to [0, 1]
+        
+        # Transpose for PyTorch: (H, W, C) -> (C, H, W)
+        env = gym.wrappers.TransformObservation(
+            env, lambda obs: np.transpose(obs, (2, 0, 1))
+        )
         
         # Debug observation space
         logger.debug(f"Single env observation space before vectorization: {env.observation_space}")
@@ -130,35 +135,37 @@ class SpaceInvadersGame(GameInterface):
             env = self._make_env(render, config)
             return env
         
-        # Create vectorized environment with parallel envs
-        env = DummyVecEnv([make_env for _ in range(8)])
+        # Create vectorized environment with more parallel envs for H100
+        env = DummyVecEnv([make_env for _ in range(16)])  # Increased from 8 to 16
         
         # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
-        env = VecFrameStack(env, n_stack=4, channels_order='first')  # Use 4 frames instead of 16 for memory efficiency
+        env = VecFrameStack(env, n_stack=4, channels_order='first')
         
         # Debug final observation space
         logger.debug(f"Final observation space: {env.observation_space}")
         
-        # Create and train the model with optimized policy network
+        # Create and train the model with optimized policy network for H100
         model = DQN(
             "CnnPolicy",
             env,
             learning_rate=config.learning_rate,
-            buffer_size=100_000,  # Reduced buffer size for memory efficiency
+            buffer_size=config.buffer_size,
             learning_starts=config.learning_starts,
-            batch_size=512,  # Reduced batch size for memory efficiency
+            batch_size=config.batch_size,
             exploration_fraction=config.exploration_fraction,
             target_update_interval=config.target_update_interval,
             tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
-                "net_arch": [512, 512],
-                "normalize_images": True,
+                "net_arch": [1024, 1024],  # Larger network for H100
+                "normalize_images": False,  # Images are already normalized
                 "optimizer_class": torch.optim.Adam,
                 "optimizer_kwargs": {
                     "eps": 1e-5,
                     "weight_decay": 1e-6
                 }
             },
+            train_freq=(4, "step"),       # Update every 4 steps
+            gradient_steps=4,             # Multiple gradient steps per update
             verbose=1,
             device="cuda"
         )
