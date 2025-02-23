@@ -113,15 +113,7 @@ class SpaceInvadersGame(GameInterface):
         env = ScaleObservation(env)  # Scale to [0,1]
         env = gym.wrappers.FrameStackObservation(env, config.frame_stack if config else 16)
         
-        # Add video recording if not rendering
-        if not render:
-            env = gym.wrappers.RecordVideo(
-                env,
-                f"models/{self.name}/videos",
-                episode_trigger=lambda x: x % 100 == 0
-            )
-        
-        return env
+        return env  # Removed video recording
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
         """Train an agent for this game."""

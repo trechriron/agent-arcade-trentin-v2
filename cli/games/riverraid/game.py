@@ -83,20 +83,12 @@ class RiverraidGame(GameInterface):
         env = ClipRewardEnv(env)
         
         # Observation preprocessing (in correct order)
-        env = gym.wrappers.ResizeObservation(env, (84, 84))  # Matches evaluation's observation_size
-        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)  # Keep channel dim for CNN
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
         env = ScaleObservation(env)  # Scale to [0,1]
-        env = gym.wrappers.FrameStackObservation(env, config.frame_stack if config else 16)  # Match evaluation default
+        env = gym.wrappers.FrameStackObservation(env, config.frame_stack if config else 16)
         
-        # Add video recording if not rendering
-        if not render:
-            env = gym.wrappers.RecordVideo(
-                env,
-                f"models/{self.name}/videos",
-                episode_trigger=lambda x: x % 100 == 0
-            )
-        
-        return env
+        return env  # Removed video recording
     
     def get_default_config(self) -> GameConfig:
         """Get default configuration for the game."""
