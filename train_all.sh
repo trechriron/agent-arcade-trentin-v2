@@ -26,12 +26,32 @@ sleep 2  # Give tensorboard time to start
 echo "Starting training pipeline..."
 echo "Monitor progress at http://localhost:6006"
 
+# Function to check if model exists
+check_model() {
+    local game=$1
+    local model_path="models/${game}/${game}_final.zip"
+    if [ -f "$model_path" ]; then
+        echo "✅ Found existing model for ${game}: ${model_path}"
+        return 0
+    fi
+    return 1
+}
+
 # Function to run training with proper error handling and checkpointing
 train_game() {
     local game=$1
     local expected_time=$2
-    echo "🎯 Training $game..."
-    echo "Expected training time: $expected_time"
+    
+    # Check if model already exists
+    if check_model "$game"; then
+        echo "⏭️  Skipping ${game} training - model already exists"
+        echo "🔍 To evaluate: agent-arcade evaluate ${game} models/${game}/${game}_final.zip --episodes 10 --render"
+        echo ""
+        return 0
+    fi
+    
+    echo "🎯 Training ${game}..."
+    echo "Expected training time: ${expected_time}"
     
     # Create checkpoint directory
     mkdir -p "models/${game}/checkpoints"
@@ -39,17 +59,19 @@ train_game() {
     if ! agent-arcade train $game \
         --config "models/${game}/config.yaml" \
         --output-dir "models/${game}" \
-        --checkpoint-freq 100000; then
+        --checkpoint-freq 100000 \
+        --progress-bar; then
         echo "❌ Training failed for $game"
         return 1
     fi
     
-    # Run comprehensive evaluation
-    echo "Evaluating ${game}..."
-    agent-arcade evaluate $game "models/${game}/${game}_final.zip" \
-        --episodes 200 --no-render
+    # Move the model to the expected location
+    mv "models/${game}/baseline/final_model.zip" "models/${game}/${game}_final.zip"
     
     echo "✅ Training completed for $game"
+    echo "📁 Model saved to: models/${game}/${game}_final.zip"
+    echo "🔍 To evaluate: agent-arcade evaluate ${game} models/${game}/${game}_final.zip --episodes 10 --render"
+    echo ""
 }
 
 # Print GPU information
@@ -69,10 +91,22 @@ train_game "pong" "1 hour"
 train_game "space_invaders" "2 hours"
 train_game "riverraid" "3 hours"
 
-echo "Training complete! Models saved in models/ directory"
+echo "🎉 Training pipeline complete!"
+echo ""
+echo "📊 Training Summary:"
+echo "Models saved in:"
+echo "- Pong: models/pong/pong_final.zip"
+echo "- Space Invaders: models/space_invaders/space_invaders_final.zip"
+echo "- River Raid: models/riverraid/riverraid_final.zip"
+echo ""
+echo "📈 View training curves: tensorboard --logdir ./tensorboard"
+echo ""
+echo "🔍 To evaluate models, first login:"
+echo "1. agent-arcade login"
+echo "2. agent-arcade evaluate <game> models/<game>/<game>_final.zip --episodes 10 --render"
 
 # Print final metrics
-echo "📊 Training Summary:"
+echo " Training Summary:"
 echo "Check tensorboard logs at: ./tensorboard"
 echo "Models saved in: ./models/"
 
