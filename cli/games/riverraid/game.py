@@ -65,6 +65,16 @@ class RiverraidGame(GameInterface):
     @property
     def score_range(self) -> tuple[float, float]:
         return (0, 100000)  # River Raid scores can go very high
+
+    def make_env(self) -> gym.Env:
+        """Create a basic environment instance for evaluation."""
+        return self._make_env(render=False)
+
+    def load_model(self, model_path: Path) -> DQN:
+        """Load a trained model with correct environment configuration."""
+        env = DummyVecEnv([lambda: self._make_env()])
+        env = VecFrameStack(env, n_stack=4, channels_order='last')
+        return DQN.load(model_path, env=env)
     
     def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
         """Create the game environment."""
@@ -99,74 +109,11 @@ class RiverraidGame(GameInterface):
             batch_size=2048,              # Large batches for GPU efficiency
             exploration_fraction=0.2,      # More exploration for complex strategies
             target_update_interval=2000,   # Less frequent updates for stability
-            frame_stack=16,               # Matches evaluation default
+            frame_stack=4,                # Standard for Atari
             policy="CnnPolicy",           # Correct for image input
             tensorboard_log=True,
             log_interval=100              # Frequent logging
         )
-    
-    def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
-        """Evaluate a trained model."""
-        # Load model metadata to get frame stack configuration
-        config = self.get_default_config()
-        metadata_path = model_path.parent / "metadata.json"
-        if metadata_path.exists():
-            import json
-            with open(metadata_path) as f:
-                metadata = json.load(f)
-                if "hyperparameters" in metadata:
-                    config.frame_stack = metadata["hyperparameters"].get("frame_stack", 16)
-                    logger.debug(f"Using frame_stack={config.frame_stack} from metadata")
-        
-        # Create environment with correct frame stack size
-        env = DummyVecEnv([lambda: self._make_env(record, config)])
-        model = DQN.load(model_path, env=env)
-        
-        total_score = 0
-        episode_lengths = []
-        episode_rewards = []
-        best_score = float('-inf')
-        successes = 0
-        
-        logger.info(f"Evaluating model for {episodes} episodes...")
-        logger.debug(f"Using frame stack size: {config.frame_stack}")
-        if record:
-            logger.info("Recording evaluation videos to videos/evaluation/")
-        
-        for episode in range(episodes):
-            obs = env.reset()[0]
-            done = False
-            episode_score = 0
-            episode_length = 0
-            
-            while not done:
-                action, _ = model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, _ = env.step(action)
-                episode_score += reward[0]
-                episode_length += 1
-                done = terminated[0] or truncated[0]
-            
-            total_score += episode_score
-            episode_lengths.append(episode_length)
-            episode_rewards.append(episode_score)
-            best_score = max(best_score, episode_score)
-            if episode_score >= 1000.0:  # Success threshold
-                successes += 1
-            
-            logger.info(f"Episode {episode + 1}/{episodes} - Score: {episode_score:.2f}")
-        
-        env.close()
-        
-        result = EvaluationResult(
-            score=total_score / episodes,
-            episodes=episodes,
-            success_rate=successes / episodes,
-            best_episode_score=best_score,
-            avg_episode_length=sum(episode_lengths) / len(episode_lengths)
-        )
-        
-        logger.info(f"Evaluation complete - Average score: {result.score:.2f}")
-        return result
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
         """Train an agent for this game."""
@@ -221,6 +168,68 @@ class RiverraidGame(GameInterface):
         
         return model_path
     
+    def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
+        """Evaluate a trained model."""
+        # Load model metadata to get frame stack configuration
+        config = self.get_default_config()
+        metadata_path = model_path.parent / "metadata.json"
+        if metadata_path.exists():
+            import json
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+                if "hyperparameters" in metadata:
+                    config.frame_stack = metadata["hyperparameters"].get("frame_stack", 4)
+                    logger.debug(f"Using frame_stack={config.frame_stack} from metadata")
+        
+        # Create environment with correct frame stack size
+        env = DummyVecEnv([lambda: self._make_env(record, config)])
+        env = VecFrameStack(env, n_stack=4, channels_order='last')
+        model = DQN.load(model_path, env=env)
+        
+        total_score = 0
+        episode_lengths = []
+        episode_rewards = []
+        best_score = float('-inf')
+        successes = 0
+        
+        logger.info(f"Evaluating model for {episodes} episodes...")
+        logger.debug(f"Using frame stack size: {config.frame_stack}")
+        
+        for episode in range(episodes):
+            obs = env.reset()[0]
+            done = False
+            episode_score = 0
+            episode_length = 0
+            
+            while not done:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, _ = env.step(action)
+                episode_score += reward[0]
+                episode_length += 1
+                done = terminated[0] or truncated[0]
+            
+            total_score += episode_score
+            episode_lengths.append(episode_length)
+            episode_rewards.append(episode_score)
+            best_score = max(best_score, episode_score)
+            if episode_score >= 1000.0:  # Success threshold
+                successes += 1
+            
+            logger.info(f"Episode {episode + 1}/{episodes} - Score: {episode_score:.2f}")
+        
+        env.close()
+        
+        result = EvaluationResult(
+            score=total_score / episodes,
+            episodes=episodes,
+            success_rate=successes / episodes,
+            best_episode_score=best_score,
+            avg_episode_length=sum(episode_lengths) / len(episode_lengths)
+        )
+        
+        logger.info(f"Evaluation complete - Average score: {result.score:.2f}")
+        return result
+    
     def get_score_range(self) -> tuple[float, float]:
         """Get valid score range for the game."""
         return self.score_range
@@ -229,6 +238,7 @@ class RiverraidGame(GameInterface):
         """Validate model file."""
         try:
             env = DummyVecEnv([lambda: self._make_env()])
+            env = VecFrameStack(env, n_stack=4, channels_order='last')
             DQN.load(model_path, env=env)
             return True
         except Exception as e:
@@ -241,25 +251,28 @@ class RiverraidGame(GameInterface):
             raise NotImplementedError("NEAR integration is not available. Install py_near to enable staking.")
             
         if not wallet.is_logged_in():
-            raise ValueError("Must be logged in to stake")
-        
+            raise ValueError("Wallet must be logged in to stake")
+            
         if not self.validate_model(model_path):
             raise ValueError("Invalid model file")
-        
-        # Verify target score is within range
-        min_score, max_score = self.score_range
-        if not min_score <= target_score <= max_score:
-            raise ValueError(f"Target score must be between {min_score} and {max_score}")
-        
-        # Use staking module
-        await stake_on_game(
-            wallet=wallet,
-            game_name=self.name,
-            model_path=model_path,
+            
+        # Evaluate model performance
+        result = self.evaluate(model_path, episodes=10)
+        if result.score < target_score:
+            raise ValueError(f"Model performance ({result.score:.2f}) below target score ({target_score:.2f})")
+            
+        # Create stake record
+        record = StakeRecord(
+            game=self.name,
+            model_path=str(model_path),
             amount=amount,
             target_score=target_score,
-            score_range=self.score_range
+            current_score=result.score
         )
+        
+        # Submit stake transaction
+        await wallet.stake(record)
+        logger.info(f"Staked {amount} NEAR on {self.name} model performance")
 
 def register():
     """Register the game."""
