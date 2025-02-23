@@ -145,8 +145,6 @@ class RiverraidGame(GameInterface):
             },
             train_freq=(32, "step"),      # Update every 32 steps
             gradient_steps=8,             # Multiple gradient steps
-            learning_starts=200000,       # Extended exploration
-            target_update_interval=2000,  # Less frequent updates
             verbose=1,
             device="cuda"                # Use GPU
         )
@@ -165,7 +163,7 @@ class RiverraidGame(GameInterface):
         )
         
         # Save the model
-        model_path = Path(f"models/{self.name}_final.zip")
+        model_path = Path(f"models/{self.name}/baseline/final_model.zip")
         model_path.parent.mkdir(parents=True, exist_ok=True)
         model.save(str(model_path))
         logger.info(f"Model saved to {model_path}")

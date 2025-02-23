@@ -149,8 +149,6 @@ class SpaceInvadersGame(GameInterface):
             },
             train_freq=(16, "step"),     # Update every 16 steps
             gradient_steps=4,            # Multiple gradient steps
-            learning_starts=100000,      # Extended exploration
-            target_update_interval=2000, # Less frequent updates
             verbose=1,
             device="cuda"               # Use GPU
         )
@@ -169,7 +167,7 @@ class SpaceInvadersGame(GameInterface):
         )
         
         # Save the model
-        model_path = Path(f"models/{self.name}_final.zip")
+        model_path = Path(f"models/{self.name}/baseline/final_model.zip")
         model_path.parent.mkdir(parents=True, exist_ok=True)
         model.save(str(model_path))
         logger.info(f"Model saved to {model_path}")
