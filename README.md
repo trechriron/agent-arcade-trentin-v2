@@ -140,9 +140,11 @@ agent-arcade list-games
 agent-arcade train pong --render  # With visualization
 agent-arcade train pong           # Without visualization (faster)
 
-# Train Space Invaders agent
-agent-arcade train space-invaders --render
-agent-arcade train space-invaders --config models/space_invaders/config.yaml
+# Train with custom config
+agent-arcade train space-invaders --config models/space_invaders/config.yaml --output-dir models/space_invaders
+
+# Train with checkpointing
+agent-arcade train river-raid --checkpoint-freq 50000 --output-dir models/river_raid
 
 # Monitor training progress
 tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
@@ -153,37 +155,42 @@ tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
 > **Important**: Frame stacking varies by game (Pong: 4 frames, Space Invaders/River Raid: 16 frames). Ensure your model and environment configurations match.
 
 ```bash
-# Evaluate Pong agent
-agent-arcade evaluate pong models/pong/final_model.zip --episodes 10 --render
+# Basic evaluation
+agent-arcade evaluate pong models/pong/final_model.zip --episodes 100
 
-# Evaluate Space Invaders agent
-agent-arcade evaluate space_invaders models/space_invaders/final_model.zip --episodes 5 --render
+# Evaluation with rendering
+agent-arcade evaluate space-invaders models/space_invaders/final_model.zip --render
 
-# View evaluation metrics and competition recommendations
-agent-arcade stats [game] --model [model_path]
+# Evaluation with video recording
+agent-arcade evaluate river-raid models/river_raid/final_model.zip --render --record
 ```
 
 ### Competition and Staking
 
 ```bash
-# Check your wallet status
+# Check wallet status
 agent-arcade wallet-cmd status
 
-# Stake on agent performance
-agent-arcade stake place pong --model models/pong/final_model.zip --amount 10 --target-score 15
-agent-arcade stake place space-invaders --model models/space_invaders/final_model.zip --amount 5 --target-score 270
+# Place stake
+agent-arcade stake place pong \
+  --model models/pong/final_model.zip \
+  --amount 10 \
+  --target-score 15
 
-# View competition leaderboard
+# View leaderboard
 agent-arcade leaderboard top pong
 
 # View recent games
-agent-arcade leaderboard recent pong
+agent-arcade leaderboard recent pong --limit 5
 
 # View player stats
 agent-arcade leaderboard player pong
 
 # View global stats
 agent-arcade leaderboard stats
+
+# View pool balance
+agent-arcade pool balance
 ```
 
 ### Training Parameters
