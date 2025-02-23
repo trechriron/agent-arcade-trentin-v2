@@ -122,7 +122,7 @@ class SpaceInvadersGame(GameInterface):
         """Train an agent for this game."""
         config = self.load_config(config_path)
         
-        # Create vectorized environment with parallel envs and frame stacking
+        # Create vectorized environment with parallel envs
         env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(8)])
         env = VecFrameStack(env, n_stack=4, channels_order='last')
         
@@ -138,18 +138,16 @@ class SpaceInvadersGame(GameInterface):
             target_update_interval=config.target_update_interval,
             tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
-                "net_arch": [1024, 512],  # Larger network for complex patterns
-                "normalize_images": True,  # Input normalization
+                "net_arch": [512, 512],
+                "normalize_images": False,  # Images are already normalized
                 "optimizer_class": torch.optim.Adam,
                 "optimizer_kwargs": {
                     "eps": 1e-5,
                     "weight_decay": 1e-6
                 }
             },
-            train_freq=(16, "step"),     # Update every 16 steps
-            gradient_steps=4,            # Multiple gradient steps
             verbose=1,
-            device="cuda"               # Use GPU
+            device="cuda"
         )
         
         # Add progress callback
