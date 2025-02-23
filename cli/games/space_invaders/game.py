@@ -40,6 +40,21 @@ class ScaleObservation(gym.ObservationWrapper):
     def observation(self, obs):
         return obs.astype(np.float32) / 255.0
 
+class TransposeObservation(gym.ObservationWrapper):
+    """Transpose observation for PyTorch CNN input."""
+    
+    def __init__(self, env):
+        super().__init__(env)
+        obs_shape = self.observation_space.shape
+        self.observation_space = gym.spaces.Box(
+            low=0, high=1,
+            shape=(obs_shape[2], obs_shape[0], obs_shape[1]),
+            dtype=np.float32
+        )
+    
+    def observation(self, obs):
+        return np.transpose(obs, (2, 0, 1))
+
 class SpaceInvadersGame(GameInterface):
     """Space Invaders game implementation."""
     
@@ -119,9 +134,7 @@ class SpaceInvadersGame(GameInterface):
         env = ScaleObservation(env)  # Scale to [0, 1]
         
         # Transpose for PyTorch: (H, W, C) -> (C, H, W)
-        env = gym.wrappers.TransformObservation(
-            env, lambda obs: np.transpose(obs, (2, 0, 1))
-        )
+        env = TransposeObservation(env)
         
         # Debug observation space
         logger.debug(f"Single env observation space before vectorization: {env.observation_space}")
