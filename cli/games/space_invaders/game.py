@@ -100,28 +100,21 @@ class SpaceInvadersGame(GameInterface):
         if config is None:
             config = self.get_default_config()
         
-        def make_single_env():
-            env = gym.make(
-                self.env_id,
-                render_mode='human' if render else 'rgb_array'
-            )
-            
-            # Add standard Atari wrappers in correct order
-            env = NoopResetEnv(env, noop_max=30)
-            env = MaxAndSkipEnv(env, skip=4)
-            env = EpisodicLifeEnv(env)
-            env = ClipRewardEnv(env)
-            
-            # Standard observation preprocessing to match SB3 Atari preprocessing
-            env = gym.wrappers.ResizeObservation(env, (84, 84))
-            env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
-            env = ScaleObservation(env)  # Scale to [0, 1]
-            
-            return env
+        env = gym.make(
+            self.env_id,
+            render_mode='human' if render else 'rgb_array'
+        )
         
-        # Create vectorized environment with frame stacking
-        env = DummyVecEnv([make_single_env])
-        env = VecFrameStack(env, n_stack=4, channels_order='last')
+        # Add standard Atari wrappers in correct order
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        env = ClipRewardEnv(env)
+        
+        # Standard observation preprocessing to match SB3 Atari preprocessing
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
+        env = ScaleObservation(env)  # Scale to [0, 1]
         
         return env
     
@@ -129,8 +122,9 @@ class SpaceInvadersGame(GameInterface):
         """Train an agent for this game."""
         config = self.load_config(config_path)
         
-        # Create vectorized environment with parallel envs
+        # Create vectorized environment with parallel envs and frame stacking
         env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(8)])
+        env = VecFrameStack(env, n_stack=4, channels_order='last')
         
         # Create and train the model with optimized policy network
         model = DQN(
