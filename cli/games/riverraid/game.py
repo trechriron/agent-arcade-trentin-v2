@@ -177,8 +177,7 @@ class RiverraidGame(GameInterface):
             gradient_steps=4,             # Multiple gradient steps per update
             verbose=1,
             device="cuda",
-            optimize_memory_usage=True,    # Memory optimization for H100
-            handle_timeout_termination=False  # Disable timeout handling to work with memory optimization
+            optimize_memory_usage=True     # Memory optimization for H100
         )
         
         # Add progress callback
