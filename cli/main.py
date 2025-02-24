@@ -286,23 +286,15 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bo
         
         game_info = get_game_info(game)
         
-        # Load model metadata to get frame_stack configuration
-        model_dir = Path(model_path).parent
-        metadata_path = model_dir / "metadata.json"
-        frame_stack_size = frame_stack  # Use provided value if any
-        if frame_stack_size is None:  # If not provided, try metadata
-            if metadata_path.exists():
-                with open(metadata_path) as f:
-                    metadata = json.load(f)
-                    frame_stack_size = metadata.get("hyperparameters", {}).get("frame_stack", 16)
-                    logger.debug(f"Using frame_stack={frame_stack_size} from metadata")
-            else:
-                frame_stack_size = 16  # Default to training setting
-                logger.debug(f"Using default frame_stack={frame_stack_size}")
+        # Create evaluation config with game-specific settings
+        config = EvaluationConfig(
+            game_id=game,
+            n_eval_episodes=episodes,
+            render=render,
+            frame_stack=frame_stack,
+            mode="staking"
+        )
         
-        # Create environment with correct frame stack size
-        config = game_info.get_default_config()
-        config.frame_stack = frame_stack_size
         try:
             env = game_info.make_env(config=config)
             logger.debug(f"Created environment with observation space: {env.observation_space}")
@@ -316,14 +308,6 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bo
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
             raise
-        
-        config = EvaluationConfig(
-            n_eval_episodes=episodes,
-            render=render,
-            verbose=1,  # Set default verbosity level
-            record_video=record,
-            frame_stack=frame_stack_size
-        )
         
         pipeline = EvaluationPipeline(
             game=game,
@@ -342,29 +326,34 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bo
             click.echo(f"Mean Score: {result.mean_reward:.2f} ± {result.std_reward:.2f}")
             click.echo(f"Success Rate: {result.success_rate*100:.1f}%")
             click.echo(f"Episodes: {result.n_episodes}")
+            
             click.echo(f"\nEnvironment Settings:")
             click.echo(f"Frame Stack: {result.metadata['frame_stack']}")
             click.echo(f"Frame Skip: {result.metadata['frame_skip']}")
             click.echo(f"Sticky Actions: {result.metadata['sticky_actions']}")
             click.echo(f"Observation Size: {result.metadata['observation_size']}")
             
+            if result.staking_metrics:
+                click.echo(f"\nStaking Analysis:")
+                click.echo(f"Confidence Score: {result.staking_metrics['confidence_score']:.2f}")
+                click.echo(f"Risk Level: {result.staking_metrics['risk_level']}")
+                click.echo(f"Recommended Stake: {result.staking_metrics['recommended_stake']:.2f} NEAR")
+                click.echo(f"Expected Multiplier: {result.staking_metrics['expected_multiplier']:.1f}x")
+                click.echo(f"Stability Score: {result.staking_metrics['stability_score']:.2f}")
+                click.echo(f"\nTarget Scores:")
+                click.echo(f"Minimum Target: {result.staking_metrics['min_target_score']:.1f}")
+                click.echo(f"Optimal Target: {result.staking_metrics['optimal_target_score']:.1f}")
+                
+                # Get staking recommendation
+                recommendation = result.get_staking_recommendation()
+                click.echo(f"\nRecommendation: {recommendation['recommended_action'].replace('_', ' ').title()}")
+                click.echo(f"Reasoning: {recommendation['reasoning']}")
+            
             if game_config:
-                click.echo("\nStaking Thresholds:")
+                click.echo("\nContract Settings:")
                 click.echo(f"Min Score: {game_config['min_score']}")
                 click.echo(f"Max Score: {game_config['max_score']}")
                 click.echo(f"Max Multiplier: {game_config['max_multiplier']}x")
-                
-                # Calculate recommended stake target
-                mean_score = result.mean_reward
-                if mean_score >= game_config['min_score']:
-                    recommended_target = min(
-                        mean_score * 0.8,  # 80% of mean score
-                        game_config['max_score']
-                    )
-                    click.echo(f"\nRecommended stake target: {recommended_target:.1f}")
-                    click.echo("To place stake with this target:")
-                    click.echo(f"agent-arcade stake place {game} --model {model_path} "
-                             f"--amount <NEAR> --target-score {recommended_target:.1f}")
             
             rank = leaderboard_manager.get_leaderboard(game).get_player_rank(wallet.config.account_id)
             if rank:

@@ -29,7 +29,7 @@ models/
 │   ├── checkpoints/
 │   ├── versions/
 │   └── metadata.json
-└── river_raid/
+└── riverraid/
     ├── config.yaml
     ├── checkpoints/
     ├── versions/

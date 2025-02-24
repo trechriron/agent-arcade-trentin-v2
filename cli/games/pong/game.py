@@ -40,20 +40,20 @@ class ScaleObservation(gym.ObservationWrapper):
     def observation(self, obs):
         return obs.astype(np.float32) / 255.0
 
-class TransposeImage(gym.ObservationWrapper):
-    """Transpose image observation for compatibility."""
+class TransposeObservation(gym.ObservationWrapper):
+    """Transpose observation for PyTorch CNN input."""
     
-    def __init__(self, env=None):
+    def __init__(self, env):
         super().__init__(env)
         obs_shape = self.observation_space.shape
         self.observation_space = gym.spaces.Box(
             low=0, high=1,
-            shape=(obs_shape[-1], obs_shape[0], obs_shape[1]),
+            shape=(obs_shape[2], obs_shape[0], obs_shape[1]),
             dtype=np.float32
         )
     
-    def observation(self, observation):
-        return np.transpose(observation, axes=(2, 0, 1))
+    def observation(self, obs):
+        return np.transpose(obs, (2, 0, 1))
 
 class PongGame(GameInterface):
     """Pong game implementation."""
@@ -86,9 +86,9 @@ class PongGame(GameInterface):
         """Get valid score range for the game."""
         return self.score_range
         
-    def make_env(self, config: Optional[GameConfig] = None):
+    def make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
         """Create the game environment."""
-        return self._make_env(config=config)
+        return self._make_env(render, config)
         
     def load_model(self, model_path: str):
         """Load a trained model."""
@@ -97,107 +97,64 @@ class PongGame(GameInterface):
     def get_default_config(self) -> GameConfig:
         """Get default configuration for the game."""
         return GameConfig(
-            total_timesteps=2_000_000,    # Increased for better convergence
+            total_timesteps=5_000_000,    # Extended training for better strategies
             learning_rate=0.00025,        # Standard DQN learning rate
-            buffer_size=500_000,          # Larger buffer for better sampling
-            learning_starts=50_000,       # More exploration before learning
-            batch_size=1024,              # Large batches for GPU efficiency
-            exploration_fraction=0.1,      # Standard exploration
-            target_update_interval=1000,   # Standard update interval
-            frame_stack=16,               # Increased for better temporal info
+            buffer_size=1_000_000,        # Increased for H100 memory capacity
+            learning_starts=50_000,       # More initial exploration
+            batch_size=1024,              # Larger batches for H100
+            exploration_fraction=0.2,      # More exploration for complex strategies
+            target_update_interval=2000,   # Less frequent updates for stability
+            frame_stack=4,                # Standard Atari frame stack
             policy="CnnPolicy",
             tensorboard_log=True,
             log_interval=100              # Frequent logging
         )
     
     def _make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
-        """Create the game environment."""
+        """Create the game environment with proper wrappers."""
         if config is None:
             config = self.get_default_config()
         
-        def make_single_env():
-            env = gym.make(
-                self.env_id,
-                render_mode='human' if render else 'rgb_array'
-            )
-            
-            # Add standard Atari wrappers in correct order
-            env = NoopResetEnv(env, noop_max=30)
-            env = MaxAndSkipEnv(env, skip=4)
-            env = EpisodicLifeEnv(env)
-            env = ClipRewardEnv(env)
-            
-            # Standard observation preprocessing to match SB3 Atari preprocessing
-            env = gym.wrappers.ResizeObservation(env, (84, 84))
-            env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)  # Keep channel dim for stacking
-            env = ScaleObservation(env)  # Scale to [0, 1]
-            
-            # Debug observation space
-            logger.debug(f"Single env observation space: {env.observation_space}")
-            return env
+        render_mode = "human" if render else "rgb_array"
+        env = gym.make(
+            self.env_id,
+            render_mode=render_mode,
+            frameskip=4,  # Fixed frameskip for deterministic behavior
+            repeat_action_probability=0.25,  # Standard sticky actions
+            full_action_space=False  # Use minimal action space
+        )
         
-        # Create vectorized environment with frame stacking
-        env = DummyVecEnv([make_single_env])
+        # Add standard Atari wrappers in correct order
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        env = FireResetEnv(env)  # Required for Pong
+        env = ClipRewardEnv(env)
         
-        # Stack frames in the correct order for SB3 (n_envs, n_stack, h, w)
-        # The model expects 4 input channels, so we'll use 4 frames regardless of config
-        env = VecFrameStack(env, n_stack=4, channels_order='last')
+        # Standard observation preprocessing
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayscaleObservation(env, keep_dim=True)
+        env = ScaleObservation(env)
+        env = TransposeObservation(env)
         
-        # Transpose to get (n_stack, h, w) or (n_env, n_stack, h, w)
-        from stable_baselines3.common.vec_env import VecEnvWrapper
-        
-        class TransposeVecObs(VecEnvWrapper):
-            """Transpose observation for compatibility with SB3."""
-            
-            def __init__(self, venv):
-                super().__init__(venv)
-                obs_shape = self.observation_space.shape
-                
-                # VecEnv always has batch dim first
-                # Input: (n_envs, h, w, n_stack)
-                # Output: (n_envs, n_stack, h, w)
-                self.observation_space = gym.spaces.Box(
-                    low=0, high=1,
-                    shape=(obs_shape[0], obs_shape[-1], obs_shape[1], obs_shape[2]),
-                    dtype=np.float32
-                )
-            
-            def reset(self):
-                obs = self.venv.reset()
-                if isinstance(obs, tuple):
-                    obs, info = obs
-                    return self._transpose_obs(obs), info
-                return self._transpose_obs(obs), {}
-            
-            def step_wait(self):
-                result = self.venv.step_wait()
-                if len(result) == 4:
-                    # Old gym API: obs, reward, done, info
-                    obs, reward, done, info = result
-                    return self._transpose_obs(obs), reward, done, False, info
-                else:
-                    # New gym API: obs, reward, terminated, truncated, info
-                    obs, reward, terminated, truncated, info = result
-                    return self._transpose_obs(obs), reward, terminated, truncated, info
-            
-            def _transpose_obs(self, obs):
-                return np.transpose(obs, (0, 3, 1, 2))
-        
-        env = TransposeVecObs(env)
-        
-        # Debug final observation space
+        # Debug observation space
         logger.debug(f"Final observation space: {env.observation_space}")
-        
         return env
     
     def train(self, render: bool = False, config_path: Optional[Path] = None) -> Path:
         """Train an agent for this game."""
         config = self.load_config(config_path)
         
-        # Create vectorized environment with parallel envs
-        env = DummyVecEnv([lambda: self._make_env(render, config) for _ in range(8)])
+        def make_env():
+            return self._make_env(render, config)
         
-        # Create and train the model with optimized policy network
+        # Create vectorized environment
+        env = DummyVecEnv([make_env for _ in range(16)])  # Using 16 envs for H100
+        env = VecFrameStack(env, n_stack=4, channels_order='first')
+        
+        logger.debug(f"Training observation space: {env.observation_space}")
+        
+        # Create and train the model
         model = DQN(
             "CnnPolicy",
             env,
@@ -209,18 +166,18 @@ class PongGame(GameInterface):
             target_update_interval=config.target_update_interval,
             tensorboard_log=f"./tensorboard/{self.name}" if config.tensorboard_log else None,
             policy_kwargs={
-                "net_arch": [512, 512],   # Larger network for better learning
-                "normalize_images": True,  # Input normalization
+                "net_arch": [1024, 1024],  # Larger network for H100
+                "normalize_images": False,  # Images already normalized
                 "optimizer_class": torch.optim.Adam,
                 "optimizer_kwargs": {
                     "eps": 1e-5,
                     "weight_decay": 1e-6
                 }
             },
-            train_freq=(8, "step"),      # Update every 8 steps
-            gradient_steps=2,            # Two gradient steps per update
+            train_freq=(4, "step"),
+            gradient_steps=4,
             verbose=1,
-            device="cuda"               # Use GPU
+            device="cuda"
         )
         
         # Add progress callback
@@ -245,8 +202,21 @@ class PongGame(GameInterface):
         return model_path
     
     def evaluate(self, model_path: Path, episodes: int = 10, record: bool = False) -> EvaluationResult:
-        """Evaluate a trained Pong model."""
-        env = DummyVecEnv([lambda: self._make_env(record)])
+        """Evaluate a trained model."""
+        # Load model metadata to get frame stack configuration
+        config = self.get_default_config()
+        metadata_path = model_path.parent / "metadata.json"
+        if metadata_path.exists():
+            import json
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+                if "hyperparameters" in metadata:
+                    config.frame_stack = metadata["hyperparameters"].get("frame_stack", 4)
+                    logger.debug(f"Using frame_stack={config.frame_stack} from metadata")
+        
+        # Create environment with correct frame stack size
+        env = DummyVecEnv([lambda: self._make_env(record, config)])
+        env = VecFrameStack(env, n_stack=4, channels_order='first')
         model = DQN.load(model_path, env=env)
         
         total_score = 0
@@ -255,6 +225,7 @@ class PongGame(GameInterface):
         successes = 0
         
         logger.info(f"Evaluating model for {episodes} episodes...")
+        logger.debug(f"Using frame stack size: {config.frame_stack}")
         if record:
             logger.info("Recording evaluation videos to videos/evaluation/")
         
@@ -266,16 +237,22 @@ class PongGame(GameInterface):
             
             while not done:
                 action, _ = model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, _ = env.step(action)
+                obs, reward, terminated, truncated, info = env.step(action)
                 episode_score += reward[0]
                 episode_length += 1
                 done = terminated[0] or truncated[0]
+                
+                # Track success using info dict for consistency with evaluation.py
+                if isinstance(info, (list, tuple)):
+                    info = info[0]  # Get first env's info
+                if isinstance(info, dict) and info.get("is_success", False):
+                    successes += 1
+                elif episode_score > 0:  # Success in Pong is winning (score > 0)
+                    successes += 1
             
             total_score += episode_score
             episode_lengths.append(episode_length)
             best_score = max(best_score, episode_score)
-            if episode_score > 0:  # Consider winning as success
-                successes += 1
             
             logger.info(f"Episode {episode + 1}/{episodes} - Score: {episode_score:.2f}")
         
@@ -293,9 +270,10 @@ class PongGame(GameInterface):
         return result
     
     def validate_model(self, model_path: Path) -> bool:
-        """Validate Pong model file."""
+        """Validate model file."""
         try:
             env = DummyVecEnv([lambda: self._make_env()])
+            env = VecFrameStack(env, n_stack=4, channels_order='first')
             DQN.load(model_path, env=env)
             return True
         except Exception as e:
@@ -303,7 +281,7 @@ class PongGame(GameInterface):
             return False
     
     async def stake(self, wallet: NEARWallet, model_path: Path, amount: float, target_score: float) -> None:
-        """Stake NEAR on Pong performance."""
+        """Stake NEAR on performance."""
         if not NEAR_AVAILABLE:
             raise RuntimeError("NEAR integration not available")
             
@@ -329,6 +307,6 @@ class PongGame(GameInterface):
         )
 
 def register():
-    """Register the Pong game."""
+    """Register the game."""
     from cli.games import register_game
     register_game(PongGame) 

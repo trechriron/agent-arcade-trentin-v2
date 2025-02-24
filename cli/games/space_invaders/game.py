@@ -86,9 +86,9 @@ class SpaceInvadersGame(GameInterface):
         """Get valid score range for the game."""
         return self.score_range
         
-    def make_env(self):
+    def make_env(self, render: bool = False, config: Optional[GameConfig] = None) -> gym.Env:
         """Create the game environment."""
-        return self._make_env()
+        return self._make_env(render, config)
         
     def load_model(self, model_path: str):
         """Load a trained model."""
@@ -219,6 +219,7 @@ class SpaceInvadersGame(GameInterface):
         
         # Create environment with correct frame stack size
         env = DummyVecEnv([lambda: self._make_env(record, config)])
+        env = VecFrameStack(env, n_stack=config.frame_stack, channels_order='first')
         model = DQN.load(model_path, env=env)
         
         total_score = 0

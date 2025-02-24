@@ -1,0 +1,34 @@
+# Training configuration for space_invaders
+# Core training parameters
+total_timesteps: 3000000
+learning_rate: 0.00025
+buffer_size: 1000000
+learning_starts: 100000
+batch_size: 512
+exploration_fraction: 0.1
+target_update_interval: 2000
+frame_stack: 4
+
+# Network architecture
+policy: "CnnPolicy"
+features_extractor: "NatureCNN"
+features_dim: 512
+
+# Preprocessing
+normalize_images: true
+grayscale: true
+resize_shape: [84, 84]
+
+# Environment settings
+frame_skip: 4
+noop_max: 30
+
+# Evaluation settings
+eval_episodes: 100
+eval_deterministic: true
+render_eval: false
+
+# Logging
+tensorboard_log: true
+save_freq: 100000
+log_interval: 1000
