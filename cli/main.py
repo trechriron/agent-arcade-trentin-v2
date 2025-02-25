@@ -334,6 +334,22 @@ def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bo
         logger.error("Must be logged in to evaluate models")
         return
     
+    # Configure SDL video driver for rendering if needed
+    if render:
+        import platform
+        import os
+        system = platform.system()
+        if system == "Darwin":  # macOS
+            os.environ['SDL_VIDEODRIVER'] = 'cocoa'
+            logger.debug("Set SDL_VIDEODRIVER to 'cocoa' for macOS rendering")
+        elif system == "Linux":
+            # X11 is typically used on Linux
+            os.environ['SDL_VIDEODRIVER'] = 'x11'
+            logger.debug("Set SDL_VIDEODRIVER to 'x11' for Linux rendering")
+        # Windows typically uses directx by default, no need to set
+        
+        logger.info(f"Rendering enabled. SDL_VIDEODRIVER={os.environ.get('SDL_VIDEODRIVER', 'default')}")
+    
     try:
         # Get game config to show target scores
         cmd = [
@@ -607,7 +623,8 @@ def place(game: str, model: str, amount: float, target_score: float, evaluate: b
                 record=False
             )
             
-            mean_score = result.score
+            # Fix: Ensure score is a regular Python float, not a NumPy scalar
+            mean_score = float(result.score)
             logger.info(f"\nQuick Evaluation Results:")
             logger.info(f"Mean Score: {mean_score:.2f}")
             logger.info(f"Target Score: {target_score}")
@@ -816,11 +833,33 @@ def view():
 @click.argument('game')
 @click.option('--render/--no-render', default=False, help='Render training environment')
 @click.option('--config', type=click.Path(exists=True), help='Path to configuration file')
-@click.option('--output-dir', type=click.Path(), help='Directory to save model (default: models/<game>)')
-@click.option('--checkpoint-freq', type=int, default=100000, help='Save checkpoint every N steps')
+@click.option('--output-dir', type=click.Path(), help='Custom output directory for models')
+@click.option('--checkpoint-freq', default=250000, help='Frequency of saving checkpoints (in timesteps)')
 def train(game: str, render: bool, config: Optional[str], output_dir: Optional[str], checkpoint_freq: int):
     """Train an agent for a specific game."""
     try:
+        # Configure SDL video driver for rendering if needed
+        if render:
+            import platform
+            import os
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                os.environ['SDL_VIDEODRIVER'] = 'cocoa'
+                logger.debug("Set SDL_VIDEODRIVER to 'cocoa' for macOS rendering")
+            elif system == "Linux":
+                # X11 is typically used on Linux
+                os.environ['SDL_VIDEODRIVER'] = 'x11'
+                logger.debug("Set SDL_VIDEODRIVER to 'x11' for Linux rendering")
+            # Windows typically uses directx by default, no need to set
+            
+            logger.info(f"Rendering enabled. SDL_VIDEODRIVER={os.environ.get('SDL_VIDEODRIVER', 'default')}")
+        
+        # Check if game exists
+        games = get_registered_games()
+        if game not in games:
+            click.echo(f"Game {game} not found")
+            return
+        
         # Set default config path if not provided
         if not config:
             default_config = Path(f"models/{game}/config.yaml")
