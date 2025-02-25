@@ -13,16 +13,16 @@ class WalletConfig(BaseModel):
     network: str = "testnet"
     account_id: Optional[str] = None
     node_url: str = "https://rpc.testnet.near.org"
-    contract_id: str = "agent-arcade.testnet"  # Default testnet contract
+    contract_id: str = "near-agent-arcade.testnet"  # Default testnet contract
 
     def __init__(self, **data):
         super().__init__(**data)
         # Set contract ID based on network
         if self.network == "mainnet":
-            self.contract_id = "agent-arcade.near"
+            self.contract_id = "near-agent-arcade.near"
             self.node_url = "https://rpc.mainnet.near.org"
         else:
-            self.contract_id = "agent-arcade.testnet"
+            self.contract_id = "near-agent-arcade.testnet"
             self.node_url = "https://rpc.testnet.near.org"
 
 class NEARWallet:
