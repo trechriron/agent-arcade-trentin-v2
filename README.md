@@ -51,7 +51,7 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 Core Requirements:
 
-- **Python**: Version 3.8 - 3.12 (3.13 not yet supported)
+- **Python**: Version 3.8 - 3.11 recommended (3.12 has known issues, 3.13 not supported)
 - **Operating System**: Linux, macOS, or WSL2 on Windows
 - **Storage**: At least 2GB free space
 - **Memory**: At least 4GB RAM recommended
@@ -128,7 +128,16 @@ If you encounter issues during installation:
 
    ```bash
    # Check Python version
-   python3 --version  # Should be between 3.8 and 3.12
+   python3 --version  # Should be between 3.8 and 3.11
+   ```
+
+4. **Python 3.12 Compatibility Issues**
+
+   If using Python 3.12, you may encounter compatibility issues with some dependencies. These include C extension compilation errors and package dependency conflicts. We recommend using Python 3.11 for the most stable experience.
+
+   ```bash
+   # Create a virtual environment with Python 3.11 if available
+   python3.11 -m venv drl-env
    ```
 
 For detailed troubleshooting steps, see [Installation Guide](docs/installation.md).

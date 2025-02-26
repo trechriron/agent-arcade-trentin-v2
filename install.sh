@@ -21,10 +21,11 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-# Check Python version is >= 3.9 and < 3.13
+# Check Python version is >= 3.8 and <= 3.11
 python_version=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-if [ "$(printf '%s\n' "3.9" "$python_version" | sort -V | head -n1)" != "3.9" ] || [ "$(printf '%s\n' "3.13" "$python_version" | sort -V | head -n1)" != "$python_version" ]; then
-    echo "❌ Python version must be between 3.9 and 3.12. Found version: $python_version"
+if [ "$(printf '%s\n' "3.8" "$python_version" | sort -V | head -n1)" != "3.8" ] || [ "$(printf '%s\n' "$python_version" "3.11" | sort -V | head -n1)" != "$python_version" ]; then
+    echo "❌ Python version must be between 3.8 and 3.11. Found version: $python_version"
+    echo "Python 3.12 has compatibility issues with some dependencies. Python 3.13 is not supported."
     exit 1
 fi
 
