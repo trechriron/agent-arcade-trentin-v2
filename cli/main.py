@@ -362,13 +362,13 @@ def evaluate(game: str, model: Optional[str], episodes: int, seed: int, render: 
         click.echo(f"Game: {game}")
         click.echo(f"Model: {model_path}")
         click.echo(f"Episodes: {episodes}")
-        click.echo(f"Mean Score: {evaluation_results.mean_score:.2f}")
+        click.echo(f"Mean Score: {evaluation_results.mean_reward:.2f}")
         click.echo(f"Success Rate: {evaluation_results.success_rate * 100:.1f}%")
         
         # Staking analysis
         staking_analysis = analyze_staking(
             success_rate=evaluation_results.success_rate,
-            mean_score=evaluation_results.mean_score,
+            mean_score=evaluation_results.mean_reward,
             game_info=game_instance.get_game_info()
         )
         
