@@ -42,7 +42,7 @@ Name                Description                               Version   Staking
 --------------------------------------------------------------------------------
 pong                Classic paddle vs paddle game            1.0       ✓        
 space_invaders      Defend Earth from alien invasion        1.0       ✓        
-river_raid          Control jet and manage fuel             1.0       ✓        
+riverraid           Control jet and manage fuel             1.0       ✓        
 ```
 
 ## Training Workflow
@@ -59,6 +59,7 @@ agent-arcade train <game> [OPTIONS]
 - `--config PATH`: Custom configuration file
 - `--output-dir PATH`: Model save location (default: models/<game>)
 - `--checkpoint-freq N`: Save frequency in steps (default: 100000)
+- `--seed INT`: Random seed for reproducibility
 
 **Example:**
 
@@ -81,23 +82,26 @@ agent-arcade train space_invaders --config models/space_invaders/custom_config.y
 ### Evaluate a Model
 
 ```bash
-agent-arcade evaluate <game> <model-path> [OPTIONS]
+agent-arcade evaluate <game> [OPTIONS]
 ```
 
 **Options:**
 
+- `--model PATH`: Path to trained model (required)
 - `--episodes N`: Number of evaluation episodes (default: 100)
 - `--render/--no-render`: Show evaluation visualization (default: False)
 - `--record/--no-record`: Save evaluation videos (default: False)
+- `--seed INT`: Random seed for reproducibility
+- `--deterministic/--no-deterministic`: Use deterministic actions for evaluation (default: True)
 
 **Example:**
 
 ```bash
 # Basic evaluation
-agent-arcade evaluate pong models/pong/final_model.zip
+agent-arcade evaluate pong --model models/pong/baseline/final_model.zip
 
 # Detailed evaluation with video recording
-agent-arcade evaluate space_invaders models/space_invaders/final_model.zip --episodes 200 --record
+agent-arcade evaluate space_invaders --model models/space_invaders/baseline/final_model.zip --episodes 200 --record
 ```
 
 **Output Includes:**
@@ -126,7 +130,7 @@ agent-arcade stake place <game> [OPTIONS]
 **Example:**
 
 ```bash
-agent-arcade stake place pong --model models/pong/final_model.zip --amount 1 --target-score 15
+agent-arcade stake place pong --model models/pong/baseline/final_model.zip --amount 1.0 --target-score 15.0
 ```
 
 **Pre-stake Evaluation:**
@@ -135,6 +139,19 @@ agent-arcade stake place pong --model models/pong/final_model.zip --amount 1 --t
 - Target score validation
 - Potential reward calculation
 - Risk assessment warnings
+
+### View Game Configuration
+
+```bash
+agent-arcade stake game-config <game>
+```
+
+Shows the game's staking configuration:
+
+- Min score
+- Max score
+- Min stake
+- Max multiplier
 
 ### View Current Stake
 
@@ -159,7 +176,7 @@ agent-arcade stake submit <game> <score>
 **Example:**
 
 ```bash
-agent-arcade stake submit pong 18
+agent-arcade stake submit pong 18.0
 ```
 
 **Validations:**
@@ -225,18 +242,6 @@ Shows your performance statistics:
 - Current rank
 - Total games played
 
-### View Global Stats
-
-```bash
-agent-arcade leaderboard stats
-```
-
-Shows global statistics:
-
-- Total players
-- Total entries
-- Per-game statistics
-
 ## Wallet Management
 
 ### Login to NEAR Wallet
@@ -247,7 +252,6 @@ agent-arcade wallet-cmd login [OPTIONS]
 
 **Options:**
 
-- `--network`: NEAR network to use (default: testnet)
 - `--account-id`: Specific account ID to use
 
 ### Check Wallet Status
@@ -280,13 +284,13 @@ agent-arcade wallet-cmd logout
 2. **Evaluate Performance**
 
    ```bash
-   agent-arcade evaluate pong models/pong/final_model.zip --episodes 100
+   agent-arcade evaluate pong --model models/pong/baseline/final_model.zip --episodes 100
    ```
 
 3. **Place a Stake**
 
    ```bash
-   agent-arcade stake place pong --model models/pong/final_model.zip --amount 1 --target-score 15
+   agent-arcade stake place pong --model models/pong/baseline/final_model.zip --amount 1.0 --target-score 15.0
    ```
 
 4. **Monitor Progress**
@@ -299,7 +303,7 @@ agent-arcade wallet-cmd logout
 5. **Submit Score**
 
    ```bash
-   agent-arcade stake submit pong 18
+   agent-arcade stake submit pong 18.0
    ```
 
 ## Environment Variables
