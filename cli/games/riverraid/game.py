@@ -1,7 +1,7 @@
 """Riverraid implementation using ALE."""
 import gymnasium as gym
 from pathlib import Path
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Dict
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 from stable_baselines3.common.atari_wrappers import (
@@ -19,7 +19,8 @@ import os
 import datetime
 from stable_baselines3.common.monitor import Monitor
 
-from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback
+from cli.games.base import GameInterface, GameConfig, ProgressCallback
+from cli.core.evaluation import EvaluationResult, EvaluationConfig, EvaluationPipeline
 
 try:
     from cli.core.near import NEARWallet
@@ -280,7 +281,7 @@ class RiverraidGame(GameInterface):
             logger.error(traceback.format_exc())
             raise
     
-    def evaluate(self, model_path, episodes=10, seed=42, render=False, deterministic=True):
+    def evaluate(self, model_path, episodes=10, seed=42, render=False, deterministic=True, record=False):
         """
         Evaluate a trained model's performance in the game.
         
@@ -290,118 +291,64 @@ class RiverraidGame(GameInterface):
             seed: Random seed for evaluation
             render: Whether to render the environment (bool)
             deterministic: Whether to use deterministic actions
+            record: Whether to record videos of evaluation
             
         Returns:
             EvaluationResult containing metrics from the evaluation
         """
         try:
-            from stable_baselines3 import DQN
-            from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
-            from stable_baselines3.common.monitor import Monitor
-            from cli.core.evaluation import EvaluationResult
-            import numpy as np
-            import os
-            
-            logger.info(f"Evaluating model: {model_path}")
-            
-            # Load the model first to get its observation space
-            # This is a temporary environment just to load the model
-            temp_env = DummyVecEnv([lambda: self._make_env()])
-            temp_env = VecFrameStack(temp_env, n_stack=4, channels_order='first')
-            temp_model = DQN.load(model_path)
-            model_obs_space = temp_model.observation_space
-            logger.info(f"Model observation space: {model_obs_space}")
-            
-            # Now use the information from the model to create a matching environment
-            render_mode = "human" if render else "rgb_array"
-            
-            # Create and wrap the environment
+            # Create environment with proper settings
+            render_mode = "human" if render else None
             env = self._make_env(render_mode=render_mode)
-            env = Monitor(env)
             
-            # Vectorize the environment and match the frame stacking to the model
-            env = DummyVecEnv([lambda: env])
+            # Load model first to get its observation space
+            temp_model = DQN.load(str(model_path))
+            model_obs_space = temp_model.observation_space
+            n_stack = model_obs_space.shape[0]  # Get frame stack from model's observation space
+            logger.debug(f"Model observation space: {model_obs_space}")
+            logger.debug(f"Using frame_stack={n_stack} from model")
             
-            # Use the same number of frame stacks as the model
-            n_stack = model_obs_space.shape[0]
-            env = VecFrameStack(env, n_stack=n_stack, channels_order='first')
-            
-            # Override the observation space to match the model
-            env.observation_space = model_obs_space
-            
-            # Load the model with our prepared environment
-            model = DQN.load(model_path, env=env)
-            
-            # Set seed if provided
-            if seed is not None:
-                np.random.seed(seed)
-                torch.manual_seed(seed)
-                env.seed(seed)
-            
-            # Evaluate the model
-            episode_rewards = []
-            episode_lengths = []
-            success_count = 0
-            success_threshold = 1000  # RiverRaid success threshold
-            
-            for episode in range(episodes):
-                obs = env.reset()
-                done = False
-                total_reward = 0
-                steps = 0
-                
-                # Ensure obs has the right shape
-                if obs.shape != model_obs_space.shape:
-                    logger.warning(f"Reshaping observation from {obs.shape} to match model's expected {model_obs_space.shape}")
-                    # Reshape observation if needed
-                    if len(obs.shape) >= 3 and len(model_obs_space.shape) >= 3:
-                        # Resize using OpenCV or other method if needed
-                        pass
-                
-                while not done:
-                    action, _states = model.predict(obs, deterministic=deterministic)
-                    obs, reward, done, info = env.step(action)
-                    total_reward += reward[0]
-                    steps += 1
-                    
-                    # Break if episode is too long (safety measure)
-                    if steps >= 10000:
-                        logger.warning("Episode too long, terminating early")
-                        break
-                    
-                    # Ensure obs has the right shape for next iteration
-                    if obs.shape != model_obs_space.shape:
-                        logger.warning(f"Reshaping observation from {obs.shape} to match model's expected {model_obs_space.shape}")
-                        # Reshape observation if needed
-                        if len(obs.shape) >= 3 and len(model_obs_space.shape) >= 3:
-                            # Resize using OpenCV or other method if needed
-                            pass
-                
-                # Record metrics
-                episode_rewards.append(total_reward)
-                episode_lengths.append(steps)
-                
-                # Check for success
-                if total_reward >= success_threshold:
-                    success_count += 1
-                
-                logger.info(f"Episode {episode+1}: Score: {total_reward:.2f}, Steps: {steps}")
-            
-            # Calculate final metrics
-            mean_reward = np.mean(episode_rewards)
-            success_rate = (success_count / episodes) * 100
-            avg_episode_length = np.mean(episode_lengths)
-            best_episode = np.max(episode_rewards)
-            
-            logger.info(f"Evaluation results - Mean score: {mean_reward:.2f}, Success rate: {success_rate:.1f}%, Episodes: {episodes}")
-            
-            return EvaluationResult(
-                score=mean_reward,
-                episodes=episodes,
-                success_rate=success_rate,
-                best_episode_score=best_episode,
-                avg_episode_length=avg_episode_length
+            # Create evaluation config
+            eval_config = EvaluationConfig(
+                game_id=self.name,
+                n_eval_episodes=episodes,
+                deterministic=deterministic,
+                render=render,
+                verbose=1,
+                frame_stack=n_stack,  # Use the frame stack from the model
+                record=record  # Add record parameter
             )
+            
+            # Create dummy wallet and leaderboard since we're not using blockchain features
+            from unittest.mock import MagicMock
+            dummy_wallet = MagicMock()
+            dummy_leaderboard = MagicMock()
+            
+            # Create evaluation pipeline
+            pipeline = EvaluationPipeline(
+                game=self.name,
+                env=env,
+                model=DQN,
+                wallet=dummy_wallet,
+                leaderboard_manager=dummy_leaderboard,
+                config=eval_config
+            )
+            
+            # Use the existing model observation space to configure the environment correctly
+            pipeline.env = pipeline._prepare_environment(model_obs_space)
+            
+            # Load the model with the properly configured environment
+            pipeline.model = DQN.load(str(model_path), env=pipeline.env)
+            
+            # Run evaluation
+            result = pipeline.evaluate()
+            
+            # Log evaluation results
+            logger.info(f"Evaluation completed with mean score: {result.mean_reward}")
+            
+            # Return the result directly - it already has the correct structure
+            return result
+            
         except Exception as e:
             logger.error(f"Error in evaluation: {e}")
             import traceback

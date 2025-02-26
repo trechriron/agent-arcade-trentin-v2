@@ -534,7 +534,7 @@ def place(game: str, model: str, amount: float, target_score: float, evaluate: b
             )
             
             # Fix: Ensure score is a regular Python float, not a NumPy scalar
-            mean_score = float(result.score)
+            mean_score = float(result.mean_reward)
             logger.info(f"\nQuick Evaluation Results:")
             logger.info(f"Mean Score: {mean_score:.2f}")
             logger.info(f"Target Score: {target_score}")

@@ -15,7 +15,8 @@ from loguru import logger
 import numpy as np
 import torch
 
-from cli.games.base import GameInterface, GameConfig, EvaluationResult, ProgressCallback
+from cli.games.base import GameInterface, GameConfig, ProgressCallback
+from cli.core.evaluation import EvaluationResult, EvaluationConfig, EvaluationPipeline
 
 # Optional NEAR imports
 try:
@@ -267,11 +268,8 @@ class PongGame(GameInterface):
         
         return model_path
     
-    def evaluate(self, model_path, episodes=10, seed=42, render=False, deterministic=True):
-        """Evaluate a trained model using the central evaluation pipeline."""
-        from stable_baselines3 import DQN
-        from cli.core.evaluation import EvaluationConfig, EvaluationPipeline
-        from cli.games.base import EvaluationResult
+    def evaluate(self, model_path, episodes=10, seed=42, render=False, deterministic=True, record=False):
+        """Evaluate a trained model."""
         
         try:
             # Create environment with proper settings
@@ -292,7 +290,8 @@ class PongGame(GameInterface):
                 deterministic=deterministic,
                 render=render,
                 verbose=1,
-                frame_stack=n_stack  # Use the frame stack from the model
+                frame_stack=n_stack,  # Use the frame stack from the model
+                record=record  # Add record parameter
             )
             
             # Create dummy wallet and leaderboard since we're not using blockchain features
@@ -319,14 +318,12 @@ class PongGame(GameInterface):
             # Run evaluation
             result = pipeline.evaluate()
             
-            # Transform result to our simpler format
-            return EvaluationResult(
-                mean_score=result.mean_reward,
-                n_episodes=episodes,
-                success_rate=result.success_rate,
-                best_episode_score=max(result.episode_rewards) if result.episode_rewards else 0,
-                avg_episode_length=sum(result.episode_lengths)/len(result.episode_lengths) if result.episode_lengths else 0
-            )
+            # No need to transform the result - return the EvaluationResult directly
+            # The core EvaluationResult already has mean_reward which is what the CLI uses as score
+            logger.info(f"Evaluation completed with mean score: {result.mean_reward}")
+            
+            # Return the result directly - it already has the correct structure
+            return result
             
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")
