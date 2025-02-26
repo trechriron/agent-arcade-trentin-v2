@@ -19,7 +19,7 @@ except ImportError:
     NEARWallet = None
     LeaderboardManager = None
 
-from .core.evaluation import EvaluationConfig, EvaluationPipeline
+from .core.evaluation import EvaluationConfig, EvaluationPipeline, analyze_staking
 from .games import get_registered_games, get_game_info, list_games, get_game
 
 # Initialize global managers
@@ -291,185 +291,95 @@ def stats():
 
 @cli.command()
 @click.argument('game')
-@click.argument('model-path', type=click.Path(exists=True))
-@click.option('--episodes', default=20, help='Number of evaluation episodes')
-@click.option('--render/--no-render', default=True, help='Render evaluation episodes')
-@click.option('--verbose', default=1, help='Verbosity level')
-def test_evaluate(game: str, model_path: str, episodes: int = 20, render: bool = True, verbose: int = 1):
-    """Test evaluate a trained model without requiring login."""
-    game_info = get_game_info(game)
-    if not game_info:
-        logger.error(f"Game {game} not found")
-        return
-    
+@click.option('--model', help='Path to model file')
+@click.option('--episodes', default=10, help='Number of episodes to evaluate')
+@click.option('--seed', default=42, help='Random seed')
+@click.option('--render/--no-render', default=False, help='Render evaluation environment')
+@click.option('--deterministic/--non-deterministic', default=True, help='Use deterministic actions for evaluation')
+def evaluate(game: str, model: Optional[str], episodes: int, seed: int, render: bool, deterministic: bool):
+    """Evaluate a trained model."""
     try:
-        result = game_info.evaluate(
-            model_path=Path(model_path),
+        # Configure SDL video driver for rendering if needed
+        if render:
+            import platform
+            import os
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                os.environ['SDL_VIDEODRIVER'] = 'cocoa'
+                logger.debug("Set SDL_VIDEODRIVER to 'cocoa' for macOS rendering")
+            elif system == "Linux":
+                # X11 is typically used on Linux
+                os.environ['SDL_VIDEODRIVER'] = 'x11'
+                logger.debug("Set SDL_VIDEODRIVER to 'x11' for Linux rendering")
+            # Windows typically uses directx by default, no need to set
+            
+            logger.info(f"Rendering enabled. SDL_VIDEODRIVER={os.environ.get('SDL_VIDEODRIVER', 'default')}")
+
+        # Check if game exists
+        games = get_registered_games()
+        if game not in games:
+            click.echo(f"Game {game} not found")
+            return
+
+        # Find the model file
+        model_path = None
+        if model:
+            model_path = Path(model)
+        else:
+            # Try to find a model in the default locations
+            possible_locations = [
+                Path(f"models/{game}/baseline/{game}_fullTrain_latest.zip"),  # Latest full training model
+                Path(f"models/{game}/baseline/final_model.zip"),              # Legacy path
+                Path(f"models/{game}/demo/{game}_demo_latest.zip"),           # Latest demo model
+            ]
+            
+            for loc in possible_locations:
+                if loc.exists():
+                    model_path = loc
+                    logger.info(f"Using model found at: {model_path}")
+                    break
+                    
+            if not model_path:
+                click.echo(f"No model found for {game}. Please specify a model path.")
+                return
+        
+        if not model_path.exists():
+            click.echo(f"Model file {model_path} not found")
+            return
+
+        # Get game instance and evaluate
+        game_instance = get_game(game)
+        evaluation_results = game_instance.evaluate(
+            model_path=str(model_path),
             episodes=episodes,
-            record=render
+            seed=seed,
+            render=render,
+            deterministic=deterministic
+        )
+
+        # Display results
+        click.echo("\nEvaluation Results:")
+        click.echo(f"Game: {game}")
+        click.echo(f"Model: {model_path}")
+        click.echo(f"Episodes: {episodes}")
+        click.echo(f"Mean Score: {evaluation_results.mean_score:.2f}")
+        click.echo(f"Success Rate: {evaluation_results.success_rate * 100:.1f}%")
+        
+        # Staking analysis
+        staking_analysis = analyze_staking(
+            success_rate=evaluation_results.success_rate,
+            mean_score=evaluation_results.mean_score,
+            game_info=game_instance.get_game_info()
         )
         
-        click.echo(f"\nEvaluation Results for {game}:")
-        click.echo("-" * 80)
-        click.echo(f"Average Score: {result.score:.2f}")
-        click.echo(f"Best Score: {result.best_episode_score:.2f}")
-        click.echo(f"Success Rate: {result.success_rate*100:.1f}%")
-        click.echo(f"Average Episode Length: {result.avg_episode_length:.1f}")
-        click.echo(f"Episodes: {result.episodes}")
-    
+        click.echo("\nStaking Analysis:")
+        click.echo(f"Risk Level: {staking_analysis.risk_level}")
+        click.echo(f"Recommendation: {staking_analysis.recommendation}")
+        
+        return evaluation_results
     except Exception as e:
         logger.error(f"Evaluation failed: {e}")
         raise
-
-@cli.command()
-@click.argument('game')
-@click.argument('model-path', type=click.Path(exists=True))
-@click.option('--episodes', default=100, help='Number of evaluation episodes')
-@click.option('--render/--no-render', default=False, help='Render evaluation episodes')
-@click.option('--record/--no-record', default=False, help='Record videos of evaluation')
-@click.option('--frame-stack', type=int, help='Override frame stack size (default: from metadata or 16)')
-def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bool, frame_stack: Optional[int]):
-    """Evaluate a trained model and record to leaderboard."""
-    if not wallet.is_logged_in():
-        logger.error("Must be logged in to evaluate models")
-        return
-    
-    # Configure SDL video driver for rendering if needed
-    if render:
-        import platform
-        import os
-        system = platform.system()
-        if system == "Darwin":  # macOS
-            os.environ['SDL_VIDEODRIVER'] = 'cocoa'
-            logger.debug("Set SDL_VIDEODRIVER to 'cocoa' for macOS rendering")
-        elif system == "Linux":
-            # X11 is typically used on Linux
-            os.environ['SDL_VIDEODRIVER'] = 'x11'
-            logger.debug("Set SDL_VIDEODRIVER to 'x11' for Linux rendering")
-        # Windows typically uses directx by default, no need to set
-        
-        logger.info(f"Rendering enabled. SDL_VIDEODRIVER={os.environ.get('SDL_VIDEODRIVER', 'default')}")
-    
-    try:
-        # Get game config to show target scores
-        cmd = [
-            'near', 'call',
-            wallet.config.contract_id,
-            'get_game_config',
-            f'{{"game": "{game}"}}',
-            '--accountId', wallet.config.account_id,
-            '--networkId', wallet.config.network
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.error(f"Failed to get game config: {result.stderr}")
-            return
-            
-        # Use helper function to parse game config
-        game_config = parse_game_config_from_output(result.stdout.strip())
-        if not game_config:
-            logger.error(f"Could not parse game config for {game}")
-            logger.error(f"Raw output: {result.stdout}")
-            return
-                
-        if not game_config:
-            logger.error(f"Game {game} not registered")
-            return
-    
-        games = get_registered_games()
-        if game not in games:
-            logger.error(f"Game {game} not found")
-            return
-        
-        game_info = get_game_info(game)
-        
-        # Create evaluation config with game-specific settings
-        config = EvaluationConfig(
-            game_id=game,
-            n_eval_episodes=episodes,
-            render=render,
-            frame_stack=frame_stack,
-            mode="staking"
-        )
-        
-        try:
-            env = game_info.make_env(config=config)
-            logger.debug(f"Created environment with observation space: {env.observation_space}")
-        except Exception as e:
-            logger.error(f"Failed to create environment: {e}")
-            raise
-            
-        try:
-            model = game_info.load_model(model_path)
-            logger.debug(f"Loaded model with policy: {model.policy}")
-        except Exception as e:
-            logger.error(f"Failed to load model: {e}")
-            raise
-        
-        pipeline = EvaluationPipeline(
-            game=game,
-            env=env,
-            model=model,
-            wallet=wallet,
-            leaderboard_manager=leaderboard_manager,
-            config=config
-        )
-        
-        try:
-            result = pipeline.run_and_record(Path(model_path))
-            
-            click.echo(f"\nEvaluation Results for {game}:")
-            click.echo("-" * 80)
-            click.echo(f"Mean Score: {result.mean_reward:.2f} ± {result.std_reward:.2f}")
-            click.echo(f"Success Rate: {result.success_rate*100:.1f}%")
-            click.echo(f"Episodes: {result.n_episodes}")
-            
-            click.echo(f"\nEnvironment Settings:")
-            click.echo(f"Frame Stack: {result.metadata['frame_stack']}")
-            click.echo(f"Frame Skip: {result.metadata['frame_skip']}")
-            click.echo(f"Sticky Actions: {result.metadata['sticky_actions']}")
-            click.echo(f"Observation Size: {result.metadata['observation_size']}")
-            
-            if result.staking_metrics:
-                click.echo(f"\nStaking Analysis:")
-                click.echo(f"Confidence Score: {result.staking_metrics['confidence_score']:.2f}")
-                click.echo(f"Risk Level: {result.staking_metrics['risk_level']}")
-                click.echo(f"Recommended Stake: {result.staking_metrics['recommended_stake']:.2f} NEAR")
-                click.echo(f"Expected Multiplier: {result.staking_metrics['expected_multiplier']:.1f}x")
-                click.echo(f"Stability Score: {result.staking_metrics['stability_score']:.2f}")
-                click.echo(f"\nTarget Scores:")
-                click.echo(f"Minimum Target: {result.staking_metrics['min_target_score']:.1f}")
-                click.echo(f"Optimal Target: {result.staking_metrics['optimal_target_score']:.1f}")
-                
-                # Get staking recommendation
-                recommendation = result.get_staking_recommendation()
-                click.echo(f"\nRecommendation: {recommendation['recommended_action'].replace('_', ' ').title()}")
-                click.echo(f"Reasoning: {recommendation['reasoning']}")
-            
-            if game_config:
-                click.echo("\nContract Settings:")
-                click.echo(f"Min Score: {game_config['min_score']}")
-                click.echo(f"Max Score: {game_config['max_score']}")
-                click.echo(f"Max Multiplier: {game_config['max_multiplier']}x")
-            
-            rank = leaderboard_manager.get_leaderboard(game).get_player_rank(wallet.config.account_id)
-            if rank:
-                click.echo(f"\nCurrent Rank: {rank}")
-        
-        except Exception as e:
-            logger.error(f"Evaluation failed: {e}")
-            import traceback
-            logger.error(f"Traceback:\n{traceback.format_exc()}")
-        finally:
-            env.close()
-            
-    except Exception as e:
-        logger.error(f"Evaluation setup failed: {e}")
-        import traceback
-        logger.error(f"Traceback:\n{traceback.format_exc()}")
-        if 'env' in locals():
-            env.close()
 
 @cli.group()
 def pool():
@@ -871,7 +781,13 @@ def train(game: str, render: bool, config: Optional[str], output_dir: Optional[s
         
         # Set default output directory
         if not output_dir:
-            output_dir = f"models/{game}"
+            if render:
+                output_dir = f"models/{game}/demo"
+                logger.info(f"Saving demo model to {output_dir}")
+            else:
+                output_dir = f"models/{game}/baseline"
+                logger.info(f"Saving training model to {output_dir}")
+                
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
@@ -891,10 +807,18 @@ def train(game: str, render: bool, config: Optional[str], output_dir: Optional[s
         logger.info(f"Training complete! Model saved to: {model_path}")
         logger.info("\nNext steps:")
         logger.info("1. Evaluate your model:")
-        logger.info(f"   agent-arcade evaluate {game} --model {model_path}")
+        logger.info(f"   agent-arcade evaluate {game} --model {str(model_path)}")
         logger.info("2. Enter competition:")
-        logger.info(f"   agent-arcade stake place {game} --model {model_path} --amount <NEAR> --target-score <SCORE>")
+        logger.info(f"   agent-arcade stake place {game} --model {str(model_path)} --amount <NEAR> --target-score <SCORE>")
         
+        # Provide info about the latest link
+        model_dir = Path(f"models/{game}/{'demo' if render else 'baseline'}")
+        model_type = "demo" if render else "fullTrain"
+        latest_link = model_dir / f"{game}_{model_type}_latest.zip"
+        if latest_link.exists():
+            logger.info("\nYou can also use the 'latest' link for convenience:")
+            logger.info(f"   agent-arcade evaluate {game} --model {str(latest_link)}")
+            
     except Exception as e:
         logger.error(f"Training failed: {e}")
         raise

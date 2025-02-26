@@ -66,11 +66,11 @@ class GameConfig:
 
 class EvaluationResult(BaseModel):
     """Evaluation results for a game."""
-    score: float
-    episodes: int
+    mean_score: float
     success_rate: float
-    best_episode_score: float
-    avg_episode_length: float
+    n_episodes: int
+    best_episode_score: float = 0.0
+    avg_episode_length: float = 0.0
     metadata: Dict[str, Any] = {}
 
 class ProgressCallback(BaseCallback):

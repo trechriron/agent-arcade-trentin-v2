@@ -11,6 +11,103 @@ import numpy as np
 from .leaderboard import LeaderboardManager
 from .wallet import NEARWallet
 
+# Custom wrapper to ensure channel-first format for observations
+class ChannelFirstWrapper(gym.ObservationWrapper):
+    """Ensures observations are in channel-first format (C, H, W) and properly normalized for PyTorch CNN models."""
+    
+    def __init__(self, env, model_obs_space=None):
+        super().__init__(env)
+        obs_shape = self.observation_space.shape
+        self.needs_transpose = False
+        self.needs_scaling = False
+        self.model_obs_space = model_obs_space
+        
+        # Check if we need to transpose
+        if len(obs_shape) == 3 and obs_shape[-1] in [1, 3]:  # Channel-last format (H, W, C)
+            self.needs_transpose = True
+            transposed_shape = (obs_shape[2], obs_shape[0], obs_shape[1])
+        else:
+            transposed_shape = obs_shape
+            
+        # Check if we need to scale values (convert from uint8 to float32)
+        if self.observation_space.dtype == np.uint8:
+            self.needs_scaling = True
+            dtype = np.float32
+            low, high = 0.0, 1.0
+        else:
+            dtype = self.observation_space.dtype
+            low = self.observation_space.low.min()
+            high = self.observation_space.high.max()
+        
+        # Update observation space to reflect the transformed shape and range
+        if self.needs_transpose or self.needs_scaling:
+            self.observation_space = gym.spaces.Box(
+                low=low,
+                high=high,
+                shape=transposed_shape, 
+                dtype=dtype
+            )
+            
+        # If model observation space is provided, ensure we match it
+        if model_obs_space is not None:
+            if model_obs_space.dtype != self.observation_space.dtype:
+                self.needs_scaling = True
+                
+            # Use model's low/high values for proper normalization
+            self.target_low = model_obs_space.low.min()
+            self.target_high = model_obs_space.high.max()
+        else:
+            self.target_low = 0.0
+            self.target_high = 1.0
+    
+    def observation(self, obs):
+        # Apply transformations as needed
+        if self.needs_transpose and len(obs.shape) == 3:
+            obs = np.transpose(obs, (2, 0, 1))
+            
+        if self.needs_scaling:
+            # Scale from [0, 255] to [0.0, 1.0] or whatever the model expects
+            if obs.dtype == np.uint8:
+                obs = obs.astype(np.float32) / 255.0
+                
+                # Rescale to target range if not [0.0, 1.0]
+                if self.target_low != 0.0 or self.target_high != 1.0:
+                    obs = obs * (self.target_high - self.target_low) + self.target_low
+                    
+        return obs
+
+# Custom wrapper to skip grayscale conversion if already grayscale
+class SkipGrayscaleConversionWrapper(gym.ObservationWrapper):
+    """Wrapper to avoid redundant grayscale conversions in Atari environments."""
+    
+    def __init__(self, env):
+        super().__init__(env)
+        # No need to change observation space
+        
+    def reset(self, **kwargs):
+        # Patch reset to avoid cv2.cvtColor for grayscale images
+        obs_tuple = self.env.reset(**kwargs)
+        if isinstance(obs_tuple, tuple):
+            obs, info = obs_tuple
+            return obs, info
+        return obs_tuple
+    
+    def step(self, action):
+        # Patch step to avoid cv2.cvtColor for grayscale images
+        result = self.env.step(action)
+        
+        # Handle both gym API versions
+        if len(result) == 4:  # Old API: obs, reward, done, info
+            obs, reward, done, info = result
+            return obs, reward, done, info
+        else:  # New API: obs, reward, terminated, truncated, info
+            obs, reward, terminated, truncated, info = result
+            return obs, reward, terminated, truncated, info
+            
+    def observation(self, observation):
+        # Don't modify the observation
+        return observation
+
 class GameSpecificConfig:
     """Game-specific configuration for evaluation."""
     
@@ -395,7 +492,7 @@ GAME_CONFIGS = {
     "pong": GameSpecificConfig(
         game_id="ALE/Pong-v5",
         score_range=(-21, 21),
-        success_threshold=0,
+        success_threshold=5.0,  # Updated from 0 to 5.0 - a moderate positive score indicates decent play
         default_frame_stack=4,
         observation_type="grayscale",
         action_space=[0, 1, 2, 3, 4, 5]  # Pong uses a subset of actions
@@ -457,6 +554,44 @@ class EvaluationPipeline:
     def _prepare_environment(self, model_obs_space: gym.spaces.Box) -> gym.Env:
         """Prepare the environment for evaluation."""
         logger.debug(f"Original observation space: {self.env.observation_space}")
+        
+        # Apply a patch for environments that use WarpFrame and would cause
+        # the "Invalid number of channels in input image" error
+        env_id = None
+        if hasattr(self.env, 'unwrapped') and hasattr(self.env.unwrapped, 'spec'):
+            env_id = self.env.unwrapped.spec.id
+            
+        # Check if this is an Atari environment with grayscale observation that needs special handling
+        is_atari_grayscale = (
+            env_id is not None and 
+            ("ALE" in env_id or "Atari" in env_id) and 
+            len(self.env.observation_space.shape) == 3 and
+            self.env.observation_space.shape[-1] == 1
+        )
+        
+        if is_atari_grayscale:
+            logger.debug(f"Detected Atari grayscale environment: {env_id}")
+            # Apply wrapper to prevent redundant grayscale conversion
+            self.env = SkipGrayscaleConversionWrapper(self.env)
+        
+        # Apply channel-first transformations and normalization as needed
+        obs_shape = self.env.observation_space.shape
+        if len(obs_shape) == 3:
+            # First check if we need to convert channel format
+            channel_conversion_needed = False
+            if obs_shape[-1] in [1, 3]:  # Last dimension is channels (channel-last format)
+                channel_conversion_needed = True
+                
+            # Check if we need to normalize data types/ranges
+            normalization_needed = False
+            if self.env.observation_space.dtype != model_obs_space.dtype:
+                normalization_needed = True
+                
+            # Apply wrapper if needed
+            if channel_conversion_needed or normalization_needed:
+                logger.debug(f"Applying observation space transformations: channel_format={channel_conversion_needed}, normalization={normalization_needed}")
+                self.env = ChannelFirstWrapper(self.env, model_obs_space)
+                logger.debug(f"Transformed observation space: {self.env.observation_space}")
 
         # If the environment is already vectorized, use it directly
         if isinstance(self.env, VecEnv):
@@ -468,6 +603,7 @@ class EvaluationPipeline:
 
         # Stack frames if needed and not already stacked
         if self.config.frame_stack > 1 and not isinstance(env, VecFrameStack):
+            # Use first channel order for PyTorch compatibility
             env = VecFrameStack(env, n_stack=self.config.frame_stack, channels_order='first')
             logger.debug(f"Observation space after stacking: {env.observation_space}")
 
@@ -480,16 +616,23 @@ class EvaluationPipeline:
     
     def _is_success(self, score: float, info: Dict[str, Any]) -> bool:
         """Determine if episode was successful based on game-specific criteria."""
-        # Check game-specific success criteria
+        # First check if environment provides explicit success signal
         if isinstance(info, (list, tuple)):
             info = info[0]
         
-        # First check if environment provides success signal
         if isinstance(info, dict) and info.get("is_success", False):
             return True
         
-        # Then check score against game-specific threshold
-        return score >= self.config.game_config.success_threshold
+        # For Atari games, use the score threshold from game configuration
+        # Compare the raw episode score with the success threshold
+        threshold = self.config.game_config.success_threshold
+        
+        # Debug logging to help diagnose issues
+        if self.config.verbose > 1:
+            logger.debug(f"Score: {score}, Threshold: {threshold}, Success: {score >= threshold}")
+            
+        # An episode is successful if the score is at least the threshold
+        return score >= threshold
     
     def _calculate_confidence_score(self, rewards: List[float]) -> float:
         """Calculate confidence score based on performance consistency and absolute performance."""
@@ -636,11 +779,13 @@ class EvaluationPipeline:
                 episode_length += 1
                 episode_specific_metrics.append(self._get_game_specific_metrics(info))
                 
-                # Track success
-                if isinstance(info, (list, tuple)):
-                    info = info[0]
-                if isinstance(info, dict) and info.get("is_success", False):
-                    successes += 1
+                # NOTE: Removed the per-step success tracking as it's not appropriate for most games
+            
+            # Check if the episode was successful based on final score
+            if self._is_success(episode_reward, info):
+                successes += 1
+                if self.config.verbose > 0:
+                    logger.debug(f"Episode {i+1} was successful with score {episode_reward}")
             
             episode_rewards.append(episode_reward)
             episode_lengths.append(episode_length)
@@ -771,3 +916,35 @@ class EvaluationPipeline:
                     metrics[key] = info[key]
         
         return metrics 
+
+def analyze_staking(success_rate, mean_score, game_info):
+    """Analyze staking suitability based on evaluation results.
+    
+    Args:
+        success_rate: Success rate from evaluation (0-1)
+        mean_score: Mean score from evaluation
+        game_info: Game information object with score_range
+        
+    Returns:
+        An object with risk_level and recommendation attributes
+    """
+    class StakingAnalysis:
+        def __init__(self, risk_level, recommendation):
+            self.risk_level = risk_level
+            self.recommendation = recommendation
+    
+    min_score, max_score = game_info.get('score_range', (0, 100))
+    normalized_score = (mean_score - min_score) / (max_score - min_score) if max_score > min_score else 0
+    
+    # Determine risk level
+    if success_rate >= 0.8 and normalized_score >= 0.7:
+        risk_level = "Low"
+        recommendation = f"Safe to stake. Consider a target score of {mean_score * 0.9:.1f}."
+    elif success_rate >= 0.5 and normalized_score >= 0.4:
+        risk_level = "Medium"
+        recommendation = f"Moderate risk. Consider a smaller stake with target score of {mean_score * 0.8:.1f}."
+    else:
+        risk_level = "High"
+        recommendation = "High risk. Improve performance before staking."
+    
+    return StakingAnalysis(risk_level, recommendation) 
