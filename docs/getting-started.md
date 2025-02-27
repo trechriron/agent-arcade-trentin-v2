@@ -281,6 +281,80 @@ agent-arcade wallet-cmd login --network testnet --account-id your-account.testne
 agent-arcade stake place pong --model models/pong_final.zip --amount 10 --target-score 15
 ```
 
+7. **View Leaderboards**:
+
+```bash
+# View top scores for Pong
+agent-arcade leaderboard top pong
+
+# View your personal stats
+agent-arcade leaderboard player pong
+```
+
+## Understanding the Leaderboard System
+
+Agent Arcade uses two leaderboard systems:
+
+1. **Local Leaderboard**: Stored on your machine in `~/.agent-arcade/leaderboards/`.
+   - Records all your evaluations automatically
+   - Also records your stake submissions
+   - Useful for tracking your progress over time
+
+2. **Blockchain Leaderboard**: Stored on the NEAR blockchain.
+   - Only includes scores submitted through staking
+   - Used for official competition rankings
+   - Verified by smart contract
+
+When you evaluate models with `agent-arcade evaluate`, scores are recorded only in your local leaderboard.
+When you submit scores with `agent-arcade stake submit`, scores are recorded in both the blockchain and local leaderboard.
+
+To check your standings:
+```bash
+# Check local leaderboard
+agent-arcade leaderboard player pong
+
+# Check blockchain leaderboard (view your active stakes)
+agent-arcade stake view
+```
+
+### Submitting Stake Results
+
+After placing a stake, you can submit your achieved score with:
+
+```bash
+agent-arcade stake submit pong 21.0
+```
+
+The command provides a detailed output including:
+- Your stake details (amount, target score)
+- Real-time transaction status updates
+- Transaction hash for tracking
+- Reward calculation results
+- Clear indication of success or failure
+
+Example output:
+```
+------------------------------------------------------------
+Submitting score for evaluation:
+Game: pong
+Your staked amount: 1.0000 NEAR
+Your target score: 15
+Your achieved score: 21.0
+------------------------------------------------------------
+Processing transaction on NEAR blockchain...
+This may take a few moments...
+------------------------------------------------------------
+✅ Transaction completed successfully!
+------------------------------------------------------------
+Transaction Hash: ANb72gYdskJBn4g3QZn8QZ7s9hn
+🎉 Congratulations! You earned a reward of 1.4000 NEAR
+Reward has been sent to your wallet: your-account.testnet
+------------------------------------------------------------
+Score has been recorded in both blockchain and local leaderboard
+Check the leaderboard to see your ranking!
+Run: agent-arcade leaderboard player pong
+```
+
 ## Training Your First Agent
 
 To start training an agent:

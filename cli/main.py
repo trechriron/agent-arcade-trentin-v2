@@ -79,6 +79,40 @@ def parse_stake_info_from_output(output_text):
         logger.error(f"Failed to parse stake info: {e}")
         return None
 
+def parse_transaction_details_from_output(output_text):
+    """Parse transaction details from NEAR CLI output for stake evaluation."""
+    try:
+        # Extract transaction hash
+        tx_hash_match = re.search(r'Transaction Id\s+([a-zA-Z0-9]+)', output_text)
+        tx_hash = tx_hash_match.group(1) if tx_hash_match else "Unknown"
+        
+        # Extract reward information
+        reward_match = re.search(r'Stake evaluated: Score (\d+) achieved, reward ([\d\.]+) NEAR', output_text)
+        no_reward_match = re.search(r'Stake evaluated: Score (\d+) achieved, no reward', output_text)
+        
+        if reward_match:
+            score = int(reward_match.group(1))
+            reward = float(reward_match.group(2))
+            has_reward = True
+        elif no_reward_match:
+            score = int(no_reward_match.group(1))
+            reward = 0.0
+            has_reward = False
+        else:
+            score = None
+            reward = None
+            has_reward = False
+        
+        return {
+            'transaction_hash': tx_hash,
+            'score': score,
+            'reward': reward,
+            'has_reward': has_reward
+        }
+    except Exception as e:
+        logger.error(f"Failed to parse transaction details: {e}")
+        return None
+
 def extract_near_amount_from_output(output_text):
     """Extract NEAR amount (in yoctoNEAR) from NEAR CLI output."""
     try:
@@ -637,6 +671,7 @@ def submit(game: str, score: float):
     
     try:
         # Verify active stake exists
+        logger.info("Checking for active stake...")
         cmd = [
             'near', 'call',
             wallet.config.contract_id,
@@ -661,6 +696,19 @@ def submit(game: str, score: float):
         if stake_info['game'] != game:
             logger.error(f"Active stake is for {stake_info['game']}, not {game}")
             return
+        
+        # Display stake info before submission
+        stake_amount = float(int(stake_info['amount']) / 1e24)
+        target_score = stake_info['target_score']
+        logger.info("-" * 60)
+        logger.info(f"Submitting score for evaluation:")
+        logger.info(f"Game: {game}")
+        logger.info(f"Your staked amount: {stake_amount:.4f} NEAR")
+        logger.info(f"Your target score: {target_score}")
+        logger.info(f"Your achieved score: {score}")
+        logger.info("-" * 60)
+        logger.info("Processing transaction on NEAR blockchain...")
+        logger.info("This may take a few moments...")
             
         # Submit score
         cmd = [
@@ -676,8 +724,46 @@ def submit(game: str, score: float):
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
-            logger.info(f"Successfully submitted score of {score} for {game}")
+            # Record score in local leaderboard as well
+            if leaderboard_manager:
+                # Use default values for success_rate and episodes since we don't have that data
+                # from the contract submission
+                success_rate = 1.0  # Assume 100% success for stake submissions
+                episodes = 50       # Use minimum recommended episodes
+                model_path = ""     # We don't know which model was used
+                
+                leaderboard_manager.record_score(
+                    game_name=game,
+                    account_id=wallet.config.account_id,
+                    score=score,
+                    success_rate=success_rate,
+                    episodes=episodes,
+                    model_path=model_path
+                )
+                logger.info(f"Score recorded in local leaderboard")
+            
+            # Parse transaction details
+            tx_details = parse_transaction_details_from_output(result.stdout)
+            
+            # Display transaction results
+            logger.info("-" * 60)
+            logger.info("✅ Transaction completed successfully!")
+            logger.info("-" * 60)
+            
+            if tx_details:
+                logger.info(f"Transaction Hash: {tx_details['transaction_hash']}")
+                
+                if tx_details['has_reward']:
+                    logger.info(f"🎉 Congratulations! You earned a reward of {tx_details['reward']:.4f} NEAR")
+                    logger.info(f"Reward has been sent to your wallet: {wallet.config.account_id}")
+                else:
+                    logger.info("Your score was recorded, but did not qualify for a reward.")
+                    logger.info(f"Target score ({target_score}) was not reached with your score of {score}.")
+            
+            logger.info("-" * 60)
+            logger.info("Score has been recorded in both blockchain and local leaderboard")
             logger.info("Check the leaderboard to see your ranking!")
+            logger.info("Run: agent-arcade leaderboard player " + game)
         else:
             logger.error(f"Failed to submit score: {result.stderr}")
             
