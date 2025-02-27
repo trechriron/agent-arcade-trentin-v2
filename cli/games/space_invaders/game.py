@@ -334,18 +334,28 @@ class SpaceInvadersGame(GameInterface):
                 record=record  # Add record parameter
             )
             
-            # Create dummy wallet and leaderboard since we're not using blockchain features
-            from unittest.mock import MagicMock
-            dummy_wallet = MagicMock()
-            dummy_leaderboard = MagicMock()
+            # Create proper wallet and leaderboard when available, otherwise use mock
+            from cli.main import wallet, leaderboard_manager
+            
+            if wallet and wallet.is_logged_in() and NEAR_AVAILABLE:
+                # Use the actual wallet and leaderboard manager for token generation
+                eval_wallet = wallet
+                eval_leaderboard = leaderboard_manager
+                logger.debug("Using actual wallet for evaluation - verification tokens will be generated")
+            else:
+                # Fallback to mock objects when real ones aren't available
+                from unittest.mock import MagicMock
+                eval_wallet = MagicMock()
+                eval_leaderboard = MagicMock()
+                logger.debug("Using mock wallet for evaluation - no verification tokens will be generated")
             
             # Create evaluation pipeline
             pipeline = EvaluationPipeline(
                 game=self.name,
                 env=env,
                 model=DQN,
-                wallet=dummy_wallet,
-                leaderboard_manager=dummy_leaderboard,
+                wallet=eval_wallet,
+                leaderboard_manager=eval_leaderboard,
                 config=eval_config
             )
             

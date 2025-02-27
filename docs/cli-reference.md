@@ -185,6 +185,29 @@ agent-arcade stake submit pong 18.0
 - Game matching
 - Score range validation
 
+#### Enhanced Output
+
+The command provides detailed information about the evaluation process:
+
+1. **Pre-Submission Details:**
+   - Game being evaluated
+   - Amount staked
+   - Target score
+   - Achieved score
+
+2. **Real-time Status Updates:**
+   - Verification token validation
+   - Security checks (token expiry, signature verification)
+   - Blockchain transaction processing
+
+3. **Success Output:**
+   - Transaction hash for blockchain verification
+   - Clear success indicator
+   - Reward details (amount earned or reason for no reward)
+   - Leaderboard recording confirmation
+
+This enhanced output ensures users have complete context about their submission and the security measures in place to protect the integrity of the staking system.
+
 ## Pool Management
 
 ### Fund Pool (Owner Only)
@@ -208,6 +231,14 @@ agent-arcade pool balance
 Shows current pool balance in NEAR.
 
 ## Leaderboard Commands
+
+Agent Arcade maintains two separate leaderboard systems:
+
+1. **Local Leaderboard**: Stored on your machine for tracking your evaluations and stake submissions
+2. **Blockchain Leaderboard**: Official leaderboard stored on the NEAR blockchain for competitions
+
+When you evaluate models using `agent-arcade evaluate`, scores are recorded in the local leaderboard.
+When you submit scores using `agent-arcade stake submit`, scores are recorded in both the blockchain and local leaderboard.
 
 ### View Top Scores
 

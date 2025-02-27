@@ -277,6 +277,13 @@ The contract implements several security measures:
    - Protected game configuration
    - Secure upgrade process
 
+4. **Score Verification System**
+   - Each score submission requires a cryptographically signed verification token
+   - Token contains: game ID, account ID, score, timestamp, and nonce
+   - Security mechanism: HMAC-SHA256 signature
+   - Purpose: Prevents unauthorized score submissions to ensure fair competition
+   - Implementation: Tokens stored locally in `~/.agent-arcade/verification_tokens/`
+
 ## Monitoring
 
 ### View Game Configuration

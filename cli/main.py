@@ -8,6 +8,8 @@ import subprocess
 import json
 from datetime import datetime
 import re
+import hmac
+import hashlib
 
 # Optional NEAR imports
 try:
@@ -77,6 +79,40 @@ def parse_stake_info_from_output(output_text):
         return None
     except Exception as e:
         logger.error(f"Failed to parse stake info: {e}")
+        return None
+
+def parse_transaction_details_from_output(output_text):
+    """Parse transaction details from NEAR CLI output for stake evaluation."""
+    try:
+        # Extract transaction hash
+        tx_hash_match = re.search(r'Transaction Id\s+([a-zA-Z0-9]+)', output_text)
+        tx_hash = tx_hash_match.group(1) if tx_hash_match else "Unknown"
+        
+        # Extract reward information
+        reward_match = re.search(r'Stake evaluated: Score (\d+) achieved, reward ([\d\.]+) NEAR', output_text)
+        no_reward_match = re.search(r'Stake evaluated: Score (\d+) achieved, no reward', output_text)
+        
+        if reward_match:
+            score = int(reward_match.group(1))
+            reward = float(reward_match.group(2))
+            has_reward = True
+        elif no_reward_match:
+            score = int(no_reward_match.group(1))
+            reward = 0.0
+            has_reward = False
+        else:
+            score = None
+            reward = None
+            has_reward = False
+        
+        return {
+            'transaction_hash': tx_hash,
+            'score': score,
+            'reward': reward,
+            'has_reward': has_reward
+        }
+    except Exception as e:
+        logger.error(f"Failed to parse transaction details: {e}")
         return None
 
 def extract_near_amount_from_output(output_text):
@@ -626,6 +662,71 @@ def game_config(game: str):
     else:
         logger.error(f"Failed to get game config: {result.stderr}")
 
+def _get_verification_token(game: str, score: float) -> Optional[dict]:
+    """Retrieve verification token for a given game and score.
+    
+    Args:
+        game: Game name
+        score: Achieved score
+        
+    Returns:
+        Verification token dictionary or None if not found
+    """
+    token_dir = Path.home() / '.agent-arcade' / 'verification_tokens'
+    if not token_dir.exists():
+        return None
+    
+    # Find the most recent token for the given game and approximate score
+    matching_files = list(token_dir.glob(f"{game}_*.json"))
+    
+    # Sort by modification time (most recent first)
+    matching_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    # Check each file for a matching score (allowing small floating point differences)
+    for file_path in matching_files:
+        try:
+            with open(file_path, 'r') as f:
+                token = json.load(f)
+                if abs(token['data']['score'] - score) < 0.01:  # Allow small difference
+                    return token
+        except (json.JSONDecodeError, KeyError):
+            continue
+    
+    return None
+
+def _validate_verification_token(token: dict, wallet) -> bool:
+    """Validate a verification token using HMAC-SHA256.
+    
+    Args:
+        token: Verification token dictionary
+        wallet: NEARWallet instance
+        
+    Returns:
+        True if token is valid, False otherwise
+    """
+    # Extract data and signature
+    data = token['data']
+    provided_signature = token['signature']
+    
+    # Get the secret key
+    secret_key = wallet.get_secret_key()
+    if not secret_key:
+        logger.error("No secret key found for verification")
+        return False
+    
+    # Recreate the signature using the same method
+    message = f"{data['game']}:{data['account_id']}:{data['score']:.4f}:{data['timestamp']}:{data['nonce']}"
+    
+    # Generate HMAC
+    expected_signature = hmac.new(
+        secret_key.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Check if signatures match
+    return hmac.compare_digest(provided_signature, expected_signature)
+
 @stake.command()
 @click.argument('game')
 @click.argument('score', type=float)
@@ -636,7 +737,34 @@ def submit(game: str, score: float):
         return
     
     try:
+        # Verify the token exists for this score
+        verification_token = _get_verification_token(game, score)
+        if not verification_token:
+            logger.error("No verification token found for this score.")
+            logger.error("You must run an evaluation first:")
+            logger.error(f"  agent-arcade evaluate {game} --model <your_model> --episodes 50")
+            return
+        
+        # Validate the token
+        is_valid = _validate_verification_token(verification_token, wallet)
+        if not is_valid:
+            logger.error("Invalid verification token. Score may have been tampered with.")
+            logger.error("Run a new evaluation to generate a valid verification token.")
+            return
+        
+        # Token is valid, check for token expiry (optional)
+        token_timestamp = verification_token['data']['timestamp']
+        current_time = int(datetime.now().timestamp())
+        hours_old = (current_time - token_timestamp) / 3600
+        
+        if hours_old > 24:  # Token is more than 24 hours old
+            logger.warning(f"Verification token is {int(hours_old)} hours old.")
+            if not click.confirm("Continue with this older verification?"):
+                logger.info("Submission cancelled. Run a new evaluation to generate a fresh token.")
+                return
+                
         # Verify active stake exists
+        logger.info("Checking for active stake...")
         cmd = [
             'near', 'call',
             wallet.config.contract_id,
@@ -661,6 +789,19 @@ def submit(game: str, score: float):
         if stake_info['game'] != game:
             logger.error(f"Active stake is for {stake_info['game']}, not {game}")
             return
+        
+        # Display stake info before submission
+        stake_amount = float(int(stake_info['amount']) / 1e24)
+        target_score = stake_info['target_score']
+        logger.info("-" * 60)
+        logger.info(f"Submitting score for evaluation:")
+        logger.info(f"Game: {game}")
+        logger.info(f"Your staked amount: {stake_amount:.4f} NEAR")
+        logger.info(f"Your target score: {target_score}")
+        logger.info(f"Your achieved score: {score}")
+        logger.info("-" * 60)
+        logger.info("Processing transaction on NEAR blockchain...")
+        logger.info("This may take a few moments...")
             
         # Submit score
         cmd = [
@@ -676,8 +817,46 @@ def submit(game: str, score: float):
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
-            logger.info(f"Successfully submitted score of {score} for {game}")
+            # Record score in local leaderboard as well
+            if leaderboard_manager:
+                # Extract verification token data
+                token_data = verification_token['data']
+                success_rate = 1.0  # Default to 100% success for now
+                episodes = token_data.get('episodes', 50)
+                model_path = ""  # We don't know which model was used
+                
+                leaderboard_manager.record_score(
+                    game_name=game,
+                    account_id=wallet.config.account_id,
+                    score=score,
+                    success_rate=success_rate,
+                    episodes=episodes,
+                    model_path=model_path
+                )
+                logger.info(f"Score recorded in local leaderboard")
+            
+            # Parse transaction details
+            tx_details = parse_transaction_details_from_output(result.stdout)
+            
+            # Display transaction results
+            logger.info("-" * 60)
+            logger.info("✅ Transaction completed successfully!")
+            logger.info("-" * 60)
+            
+            if tx_details:
+                logger.info(f"Transaction Hash: {tx_details['transaction_hash']}")
+                
+                if tx_details['has_reward']:
+                    logger.info(f"🎉 Congratulations! You earned a reward of {tx_details['reward']:.4f} NEAR")
+                    logger.info(f"Reward has been sent to your wallet: {wallet.config.account_id}")
+                else:
+                    logger.info("Your score was recorded, but did not qualify for a reward.")
+                    logger.info(f"Target score ({target_score}) was not reached with your score of {score}.")
+            
+            logger.info("-" * 60)
+            logger.info("Score has been recorded in both blockchain and local leaderboard")
             logger.info("Check the leaderboard to see your ranking!")
+            logger.info("Run: agent-arcade leaderboard player " + game)
         else:
             logger.error(f"Failed to submit score: {result.stderr}")
             

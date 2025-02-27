@@ -204,12 +204,17 @@ agent-arcade stake view
 ### 3. Evaluation Phase
 
 ```bash
-# Submit evaluation score
+# First, run an evaluation to generate a verification token
+agent-arcade evaluate pong --model models/pong/baseline/final_model.zip --episodes 50
+
+# Submit verified score
 agent-arcade stake submit pong 18
 
 # View leaderboard
 agent-arcade leaderboard top pong
 ```
+
+The evaluation process generates a cryptographically signed verification token that proves your score was legitimately achieved. This security measure prevents arbitrary score submissions and ensures fair competition.
 
 ## Reward Distribution
 

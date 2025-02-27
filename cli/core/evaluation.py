@@ -7,6 +7,10 @@ from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecFrameStack, DummyVecEnv, VecEnvWrapper, VecEnv
 from loguru import logger
 import numpy as np
+import json
+import hmac
+import hashlib
+import secrets
 
 from .leaderboard import LeaderboardManager
 from .wallet import NEARWallet
@@ -251,7 +255,8 @@ class EvaluationResult:
         episode_rewards: List[float],
         metadata: Dict[str, Any],
         game_config: GameSpecificConfig,
-        staking_metrics: Optional[Dict[str, Any]] = None
+        staking_metrics: Optional[Dict[str, Any]] = None,
+        verification_token: Optional[Dict[str, Any]] = None
     ):
         """Initialize evaluation result with staking-focused metrics.
         
@@ -272,6 +277,7 @@ class EvaluationResult:
                 - stability_score: Measure of performance stability (0-1)
                 - min_target_score: Minimum score for successful stake
                 - optimal_target_score: Recommended target score for staking
+            verification_token: Verification token for data integrity
         """
         self.mean_reward = mean_reward
         self.std_reward = std_reward
@@ -292,6 +298,8 @@ class EvaluationResult:
             "min_target_score": self._calculate_min_target_score(),
             "optimal_target_score": self._calculate_optimal_target_score()
         }
+        
+        self.verification_token = verification_token
     
     def _calculate_confidence_score(self) -> float:
         """Calculate confidence score based on performance consistency and absolute performance."""
@@ -721,6 +729,61 @@ class EvaluationPipeline:
         # Combine stability and performance
         return stability * performance
     
+    def _sign_verification_data(self, data: Dict[str, Any]) -> str:
+        """Generate a signature for verification data using HMAC-SHA256.
+        
+        Args:
+            data: Dictionary containing verification data
+            
+        Returns:
+            Hexadecimal signature string
+        """
+        # Get or create a secret key from wallet config
+        secret_key = self.wallet.config.get_secret_key()
+        if not secret_key:
+            # Generate and save a new secret key if not exists
+            secret_key = secrets.token_hex(32)
+            self.wallet.config.save_secret_key(secret_key)
+        
+        # Create a deterministic string representation of the data
+        message = f"{data['game']}:{data['account_id']}:{data['score']:.4f}:{data['timestamp']}:{data['nonce']}"
+        
+        # Generate HMAC using SHA-256
+        signature = hmac.new(
+            secret_key.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return signature
+    
+    def _store_verification_token(self, data: Dict[str, Any], signature: str) -> Path:
+        """Store verification token in local JSON file.
+        
+        Args:
+            data: Dictionary containing verification data
+            signature: Cryptographic signature for the data
+            
+        Returns:
+            Path to the stored token file
+        """
+        verification_token = {
+            'data': data,
+            'signature': signature
+        }
+        
+        # Use a consistent file path
+        token_dir = Path.home() / '.agent-arcade' / 'verification_tokens'
+        token_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use game and score to create a unique filename
+        token_file = token_dir / f"{data['game']}_{data['score']:.4f}_{data['timestamp']}.json"
+        
+        with open(token_file, 'w') as f:
+            json.dump(verification_token, f)
+            
+        return token_file
+    
     def evaluate(self) -> EvaluationResult:
         """Run evaluation episodes with focus on staking metrics."""
         episode_rewards = []
@@ -779,7 +842,6 @@ class EvaluationPipeline:
                 episode_length += 1
                 episode_specific_metrics.append(self._get_game_specific_metrics(info))
                 
-                # NOTE: Removed the per-step success tracking as it's not appropriate for most games
             
             # Check if the episode was successful based on final score
             if self._is_success(episode_reward, info):
@@ -838,6 +900,31 @@ class EvaluationPipeline:
         else:
             staking_metrics = None
         
+        # Generate verification token if wallet is available
+        verification_token = None
+        if self.wallet and self.wallet.is_logged_in():
+            # Create verification data
+            verification_data = {
+                'game': self.game,
+                'account_id': self.wallet.config.account_id,
+                'score': float(mean_reward),  # Convert numpy float to Python float
+                'timestamp': int(time.time()),
+                'nonce': secrets.token_hex(8),  # Random value for uniqueness
+                'episodes': self.config.n_eval_episodes
+            }
+            
+            # Generate signature
+            signature = self._sign_verification_data(verification_data)
+            
+            # Store token
+            token_path = self._store_verification_token(verification_data, signature)
+            logger.debug(f"Verification token stored at: {token_path}")
+            
+            verification_token = {
+                'data': verification_data,
+                'signature': signature
+            }
+        
         return EvaluationResult(
             mean_reward=mean_reward,
             std_reward=std_reward,
@@ -847,7 +934,8 @@ class EvaluationPipeline:
             episode_rewards=episode_rewards,
             metadata=metadata,
             game_config=self.config.game_config,
-            staking_metrics=staking_metrics
+            staking_metrics=staking_metrics,
+            verification_token=verification_token
         )
     
     def run_and_record(self, model_path: Path) -> EvaluationResult:
