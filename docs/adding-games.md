@@ -2,6 +2,19 @@
 
 This guide walks you through the process of adding a new Atari Learning Environment (ALE) game to Agent Arcade. **See all of the game environments at the link here: [ALE Game Environments](https://ale.farama.org/environments/).**
 
+## Quick Reference
+
+- **Automated Setup**: `python scripts/add_game.py breakout BreakoutGame ALE/Breakout-v5 "Description" 0 864`
+- **Required Files**:
+  - `cli/games/your_game_name/game.py` - Main game implementation
+  - `cli/games/your_game_name/__init__.py` - Registration
+  - `configs/your_game_name.yaml` - Configuration
+- **Key Functions**:
+  - `_make_env()` - Environment creation with wrappers
+  - `train()` - Training implementation
+  - `evaluate()` - Evaluation with verification token generation
+- **Testing**: `agent-arcade evaluate your-game-name --model models/your_game_name_final.zip`
+
 ## Prerequisites
 
 1. **System Requirements**:
@@ -383,12 +396,16 @@ class YourGameNameGame(GameInterface):
             if episode_score >= YOUR_SUCCESS_THRESHOLD:  # Define success threshold
                 successes += 1
         
+        # A verification token is automatically generated during evaluation
+        # This token is required when submitting scores to ensure legitimacy
         return EvaluationResult(
             score=total_score / episodes,
             episodes=episodes,
             success_rate=successes / episodes,
             best_episode_score=best_score,
             avg_episode_length=sum(episode_lengths) / len(episode_lengths)
+            # The verification token is handled internally by the EvaluationResult
+            # and stored in ~/.agent-arcade/verification_tokens/
         )
     
     def get_default_config(self) -> GameConfig:

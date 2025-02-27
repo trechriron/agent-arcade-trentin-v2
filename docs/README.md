@@ -38,22 +38,34 @@ Welcome to the Agent Arcade documentation. This guide will help you train AI age
 
 ### Important Note
 
-Before evaluating models or participating in competitions, you must log in with your NEAR wallet:
-```bash
-# Login to NEAR wallet (required before evaluation)
-agent-arcade wallet-cmd login
+Before participating in competitions:
 
-# Verify login status
-agent-arcade wallet-cmd status
-```
+1. **Login to NEAR wallet**:
+
+   ```bash
+   agent-arcade wallet-cmd login
+   ```
+
+2. **Evaluation & Score Submission Workflow**:
+
+   ```bash
+   # Evaluate to generate verification token
+   agent-arcade evaluate pong [model_path] --episodes 10
+   
+   # Submit verified score
+   agent-arcade stake submit pong 18
+   ```
+
+See [CLI Reference](cli-reference.md) for detailed command options.
 
 ### Advanced Topics
 
-6. [Adding New Games](adding-games.md)
-   - Game integration guide
-   - Environment setup
-   - Testing requirements
-   - Submission process
+[Adding New Games](adding-games.md)
+
+- Game integration guide
+- Environment setup
+- Testing requirements
+- Submission process
 
 ## Quick Links
 
@@ -80,9 +92,9 @@ This documentation is regularly updated. Major sections:
 
 | Section | Last Updated | Primary Focus |
 |---------|--------------|---------------|
-| Getting Started | Feb 23, 2025 | Installation, basic usage |
-| CLI Reference | Feb 23, 2025 | Command documentation |
-| Training Guide | Feb 23, 2025 | Configuration, metrics |
-| Competition Guide | Feb 23, 2025 | NEAR integration |
-| Deployment Guide | Feb 23, 2025 | Contract deployment |
-| Adding Games | Feb 23, 2025 | Game development |
+| Getting Started | Feb 24, 2025 | Installation, basic usage |
+| CLI Reference | Feb 24, 2025 | Command documentation |
+| Training Guide | Feb 24, 2025 | Configuration, metrics |
+| Competition Guide | Feb 24, 2025 | NEAR integration |
+| Deployment Guide | Feb 24, 2025 | Contract deployment |
+| Adding Games | Feb 24, 2025 | Game development |

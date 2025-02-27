@@ -185,14 +185,28 @@ agent-arcade stake submit pong 18.0
 - Game matching
 - Score range validation
 
-**Enhanced Output:**
+#### Enhanced Output
 
-The command now provides detailed transaction information:
-- Pre-submission details showing stake amount and target score
-- Real-time blockchain transaction status
-- Transaction hash for reference
-- Reward information including amount earned
-- Clear success/failure indicators with actionable next steps
+The command provides detailed information about the evaluation process:
+
+1. **Pre-Submission Details:**
+   - Game being evaluated
+   - Amount staked
+   - Target score
+   - Achieved score
+
+2. **Real-time Status Updates:**
+   - Verification token validation
+   - Security checks (token expiry, signature verification)
+   - Blockchain transaction processing
+
+3. **Success Output:**
+   - Transaction hash for blockchain verification
+   - Clear success indicator
+   - Reward details (amount earned or reason for no reward)
+   - Leaderboard recording confirmation
+
+This enhanced output ensures users have complete context about their submission and the security measures in place to protect the integrity of the staking system.
 
 ## Pool Management
 

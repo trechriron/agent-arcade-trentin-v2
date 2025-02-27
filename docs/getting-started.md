@@ -2,6 +2,29 @@
 
 This guide will help you get up and running with Agent Arcade, including troubleshooting common installation issues.
 
+## Workflow Overview
+
+```bash
+┌─────────────────┐     ┌────────────────┐     ┌─────────────────┐     ┌────────────────┐
+│                 │     │                │     │                 │     │                │
+│ 1. INSTALLATION ├────►   2. TRAINING   ├────►  3. EVALUATION   ├────►  4. SUBMISSION  │
+│                 │     │                │     │                 │     │                │
+└─────────────────┘     └────────────────┘     └─────────────────┘     └────────────────┘
+      ▲                      
+      │                      
+      │ If needed            
+┌─────┴─────────┐           
+│               │           
+│ TROUBLESHOOT  │           
+│               │           
+└───────────────┘           
+```
+
+1. **Install** the Agent Arcade CLI and dependencies
+2. **Train** an agent on your chosen game
+3. **Evaluate** your agent (generates verification token)
+4. **Submit** your score to the leaderboard
+
 ## System Requirements
 
 Before you begin, ensure your system meets these requirements:
@@ -65,6 +88,7 @@ python3 -c "from cli.core.wallet import NEARWallet; print('NEAR integration avai
 ```
 
 If you see any errors:
+
 1. Ensure Node.js is installed (v16 or higher)
 2. Try reinstalling NEAR CLI: `npm install -g near-cli`
 3. Verify staking dependencies: `pip install -e ".[staking]"`
@@ -76,12 +100,14 @@ If you see any errors:
 If you see "Virtual environment not activated" error:
 
 1. **Verify Environment Creation**:
+
    ```bash
    # Check if drl-env directory exists
    ls -la drl-env
    ```
 
 2. **Activate Environment**:
+
    ```bash
    source drl-env/bin/activate
    
@@ -309,6 +335,7 @@ When you evaluate models with `agent-arcade evaluate`, scores are recorded only 
 When you submit scores with `agent-arcade stake submit`, scores are recorded in both the blockchain and local leaderboard.
 
 To check your standings:
+
 ```bash
 # Check local leaderboard
 agent-arcade leaderboard player pong
@@ -319,41 +346,39 @@ agent-arcade stake view
 
 ### Submitting Stake Results
 
-After placing a stake, you can submit your achieved score with:
+After placing a stake, you need to:
 
-```bash
-agent-arcade stake submit pong 21.0
-```
+1. **Run an evaluation to generate a secure verification token:**
 
-The command provides a detailed output including:
-- Your stake details (amount, target score)
-- Real-time transaction status updates
-- Transaction hash for tracking
-- Reward calculation results
-- Clear indication of success or failure
+   ```bash
+   agent-arcade evaluate pong --model ./models/pong/baseline/final_model.zip --episodes 50
+   ```
 
-Example output:
-```
-------------------------------------------------------------
-Submitting score for evaluation:
-Game: pong
-Your staked amount: 1.0000 NEAR
-Your target score: 15
-Your achieved score: 21.0
-------------------------------------------------------------
-Processing transaction on NEAR blockchain...
-This may take a few moments...
-------------------------------------------------------------
-✅ Transaction completed successfully!
-------------------------------------------------------------
-Transaction Hash: ANb72gYdskJBn4g3QZn8QZ7s9hn
-🎉 Congratulations! You earned a reward of 1.4000 NEAR
-Reward has been sent to your wallet: your-account.testnet
-------------------------------------------------------------
-Score has been recorded in both blockchain and local leaderboard
-Check the leaderboard to see your ranking!
-Run: agent-arcade leaderboard player pong
-```
+   This evaluates your model and generates a cryptographically signed verification token that proves your score was legitimately achieved. This security measure prevents arbitrary score submissions.
+
+2. **Submit your verified score:**
+
+   ```bash
+   agent-arcade stake submit pong 15.5
+   ```
+
+   When you submit a score, the system:
+   - Verifies that the score was legitimately achieved through evaluation
+   - Validates the cryptographic signature to prevent tampering
+   - Checks that the token is not too old (tokens expire after 24 hours)
+   - Verifies you have an active stake for the specified game
+   - Submits the verified score to the blockchain for reward calculation
+
+   This verification process ensures fair competition and prevents manipulation of the staking system.
+
+3. **View your results:**
+
+   ```bash
+   agent-arcade stake view
+   agent-arcade leaderboard player pong
+   ```
+
+   Check both your blockchain stake status and your position on the local leaderboard.
 
 ## Training Your First Agent
 
