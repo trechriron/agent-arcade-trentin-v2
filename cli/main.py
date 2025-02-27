@@ -687,7 +687,10 @@ def _get_verification_token(game: str, score: float) -> Optional[dict]:
         try:
             with open(file_path, 'r') as f:
                 token = json.load(f)
-                if abs(token['data']['score'] - score) < 0.01:  # Allow small difference
+                # Get token score - could be stored under 'score' or 'mean_reward' depending on version
+                token_score = token['data'].get('score')
+                
+                if token_score is not None and abs(token_score - score) < 0.01:  # Allow small difference
                     return token
         except (json.JSONDecodeError, KeyError):
             continue
@@ -803,12 +806,12 @@ def submit(game: str, score: float):
         logger.info("Processing transaction on NEAR blockchain...")
         logger.info("This may take a few moments...")
             
-        # Submit score
+        # Submit score - convert float score to integer for the contract
         cmd = [
             'near', 'call',
             wallet.config.contract_id,
             'evaluate_stake',
-            f'{{"achieved_score": {score}}}',
+            f'{{"achieved_score": {int(score)}}}',
             '--accountId', wallet.config.account_id,
             '--networkId', wallet.config.network,
             '--gas', '100000000000000'

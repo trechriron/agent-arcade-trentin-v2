@@ -777,6 +777,7 @@ class EvaluationPipeline:
         token_dir.mkdir(parents=True, exist_ok=True)
         
         # Use game and score to create a unique filename
+        # The 'score' field is used for filename consistency
         token_file = token_dir / f"{data['game']}_{data['score']:.4f}_{data['timestamp']}.json"
         
         with open(token_file, 'w') as f:
