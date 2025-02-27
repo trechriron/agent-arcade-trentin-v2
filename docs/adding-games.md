@@ -2,6 +2,19 @@
 
 This guide walks you through the process of adding a new Atari Learning Environment (ALE) game to Agent Arcade. **See all of the game environments at the link here: [ALE Game Environments](https://ale.farama.org/environments/).**
 
+## Quick Reference
+
+- **Automated Setup**: `python scripts/add_game.py breakout BreakoutGame ALE/Breakout-v5 "Description" 0 864`
+- **Required Files**:
+  - `cli/games/your_game_name/game.py` - Main game implementation
+  - `cli/games/your_game_name/__init__.py` - Registration
+  - `configs/your_game_name.yaml` - Configuration
+- **Key Functions**:
+  - `_make_env()` - Environment creation with wrappers
+  - `train()` - Training implementation
+  - `evaluate()` - Evaluation with verification token generation
+- **Testing**: `agent-arcade evaluate your-game-name --model models/your_game_name_final.zip`
+
 ## Prerequisites
 
 1. **System Requirements**:
@@ -281,8 +294,10 @@ from stable_baselines3.common.atari_wrappers import (
     ClipRewardEnv
 )
 from loguru import logger
+import numpy as np
 
-from cli.games.base import GameInterface, GameConfig, EvaluationResult
+from cli.games.base import GameInterface, GameConfig
+from cli.core.evaluation import EvaluationResult, GameSpecificConfig
 from cli.core.near import NEARWallet
 from cli.core.stake import StakeRecord
 
@@ -361,6 +376,7 @@ class YourGameNameGame(GameInterface):
         
         total_score = 0
         episode_lengths = []
+        episode_rewards = []
         best_score = float('-inf')
         successes = 0
         
@@ -379,16 +395,44 @@ class YourGameNameGame(GameInterface):
             
             total_score += episode_score
             episode_lengths.append(episode_length)
+            episode_rewards.append(episode_score)
             best_score = max(best_score, episode_score)
             if episode_score >= YOUR_SUCCESS_THRESHOLD:  # Define success threshold
                 successes += 1
         
+        # A verification token is automatically generated during evaluation
+        # This token is required when submitting scores to ensure legitimacy
+        
+        # Create an EvaluationResult with the updated parameter structure
+        # NOTE: This uses the updated parameters (mean_reward, n_episodes, etc.)
+        # instead of the deprecated ones (score, episodes, etc.)
         return EvaluationResult(
-            score=total_score / episodes,
-            episodes=episodes,
+            # Average reward across all evaluation episodes
+            mean_reward=total_score / episodes,
+            
+            # Standard deviation of rewards (requires tracking per-episode rewards)
+            std_reward=np.std(episode_rewards),
+            
+            # Number of evaluation episodes (previously called 'episodes')
+            n_episodes=episodes,
+            
+            # Fraction of episodes that met the success criteria
             success_rate=successes / episodes,
-            best_episode_score=best_score,
-            avg_episode_length=sum(episode_lengths) / len(episode_lengths)
+            
+            # List of episode lengths (number of steps per episode)
+            episode_lengths=episode_lengths,
+            
+            # List of total rewards for each episode
+            episode_rewards=episode_rewards,
+            
+            # Additional metadata (can be used for custom tracking)
+            metadata={},
+            
+            # Game-specific configuration including ID and score range
+            game_config=GameSpecificConfig(game_id=self.name, score_range=self.score_range)
+            
+            # The verification token is handled internally by the EvaluationResult
+            # and stored in ~/.agent-arcade/verification_tokens/
         )
     
     def get_default_config(self) -> GameConfig:
@@ -815,7 +859,7 @@ def test_evaluation():
     game = YourGameNameGame()
     model_path = Path("models/test_model.zip")
     result = game.evaluate(model_path, episodes=2)
-    assert result.episodes == 2
+    assert result.n_episodes == 2
 ```
 
 ## Contributing Guidelines

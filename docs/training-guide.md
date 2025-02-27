@@ -2,6 +2,11 @@
 
 This guide covers everything you need to know about training agents in Agent Arcade, from configuration to performance metrics.
 
+> **Related Guides**:
+> - For command reference, see [CLI Reference](cli-reference.md)
+> - For score submission, see [Competition Guide](competition-guide.md)
+> - For adding custom games, see [Adding Games](adding-games.md)
+
 ## Training Configuration
 
 ### Basic Configuration
@@ -226,6 +231,25 @@ agent-arcade evaluate pong ~/agent-arcade-models/pong/pong_final.zip --episodes 
 
 # Record evaluation videos
 agent-arcade evaluate pong ~/agent-arcade-models/pong/pong_final.zip --episodes 5 --record
+```
+
+### Verification Tokens for Score Submission
+
+When you evaluate a model, the system automatically generates a cryptographically signed verification token. This token:
+
+- Proves that your score was legitimately achieved through evaluation
+- Contains game ID, account ID, score, and timestamp information
+- Is required when submitting scores for staking or competitions
+- Is stored in `~/.agent-arcade/verification_tokens/`
+
+After evaluation, you can submit your verified score:
+
+```bash
+# First run an evaluation to generate a verification token
+agent-arcade evaluate pong ~/agent-arcade-models/pong/pong_final.zip --episodes 10
+
+# Then submit your score (must be done after evaluation)
+agent-arcade stake submit pong 18
 ```
 
 ### Best Practices for Model Management

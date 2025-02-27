@@ -13,16 +13,17 @@ class WalletConfig(BaseModel):
     network: str = "testnet"
     account_id: Optional[str] = None
     node_url: str = "https://rpc.testnet.near.org"
-    contract_id: str = "agent-arcade.testnet"  # Default testnet contract
+    contract_id: str = "near-agent-arcade.testnet"  # Default testnet contract
+    secret_key: Optional[str] = None  # Secret key for verification tokens
 
     def __init__(self, **data):
         super().__init__(**data)
         # Set contract ID based on network
         if self.network == "mainnet":
-            self.contract_id = "agent-arcade.near"
+            self.contract_id = "near-agent-arcade.near"
             self.node_url = "https://rpc.mainnet.near.org"
         else:
-            self.contract_id = "agent-arcade.testnet"
+            self.contract_id = "near-agent-arcade.testnet"
             self.node_url = "https://rpc.testnet.near.org"
 
 class NEARWallet:
@@ -216,4 +217,13 @@ class NEARWallet:
             return None
         except Exception as e:
             logger.debug(f"Failed to get balance: {e}")
-            return None 
+            return None
+
+    def get_secret_key(self) -> Optional[str]:
+        """Get the secret key used for verification tokens."""
+        return self.config.secret_key
+    
+    def save_secret_key(self, secret_key: str) -> None:
+        """Save a new secret key for verification tokens."""
+        self.config.secret_key = secret_key
+        self._save_config() 

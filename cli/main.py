@@ -7,6 +7,9 @@ from typing import Optional
 import subprocess
 import json
 from datetime import datetime
+import re
+import hmac
+import hashlib
 
 # Optional NEAR imports
 try:
@@ -18,12 +21,117 @@ except ImportError:
     NEARWallet = None
     LeaderboardManager = None
 
-from .core.evaluation import EvaluationConfig, EvaluationPipeline
+from .core.evaluation import EvaluationConfig, EvaluationPipeline, analyze_staking
 from .games import get_registered_games, get_game_info, list_games, get_game
 
 # Initialize global managers
 wallet = NEARWallet() if NEAR_AVAILABLE else None
 leaderboard_manager = LeaderboardManager() if NEAR_AVAILABLE else None
+
+# Helper functions for parsing NEAR CLI output
+def parse_game_config_from_output(output_text):
+    """Parse game configuration from NEAR CLI output."""
+    try:
+        # Look for min_score and max_score in the output
+        min_score_match = re.search(r'min_score:\s*(\d+)', output_text)
+        max_score_match = re.search(r'max_score:\s*(\d+)', output_text)
+        min_stake_match = re.search(r'min_stake:\s*\'([^\']+)\'', output_text)
+        max_multiplier_match = re.search(r'max_multiplier:\s*(\d+)', output_text)
+        
+        if min_score_match and max_score_match and min_stake_match and max_multiplier_match:
+            return {
+                'min_score': int(min_score_match.group(1)),
+                'max_score': int(max_score_match.group(1)),
+                'min_stake': min_stake_match.group(1),
+                'max_multiplier': int(max_multiplier_match.group(1))
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Failed to parse game config: {e}")
+        return None
+
+def parse_stake_info_from_output(output_text):
+    """Parse stake information from NEAR CLI output."""
+    try:
+        # Search for pattern that looks like a JS object in the output
+        js_obj_pattern = r'{\s*game:\s*\'([^\']+)\',\s*amount:\s*\'([^\']+)\',\s*target_score:\s*(\d+),\s*timestamp:\s*(\d+),\s*games_played:\s*(\d+),\s*last_evaluation:\s*(\d+)\s*}'
+        match = re.search(js_obj_pattern, output_text)
+        
+        if match:
+            return {
+                'game': match.group(1),
+                'amount': match.group(2),
+                'target_score': int(match.group(3)),
+                'timestamp': int(match.group(4)),
+                'games_played': int(match.group(5)),
+                'last_evaluation': int(match.group(6))
+            }
+            
+        # If we can't parse the JS object with regex, try to find a JSON object
+        json_pattern = r'({[\s\S]*?})'
+        match = re.search(json_pattern, output_text)
+        if match:
+            try:
+                stake_info = json.loads(match.group(1).replace("'", '"'))
+                return stake_info
+            except (json.JSONDecodeError, KeyError):
+                return None
+        return None
+    except Exception as e:
+        logger.error(f"Failed to parse stake info: {e}")
+        return None
+
+def parse_transaction_details_from_output(output_text):
+    """Parse transaction details from NEAR CLI output for stake evaluation."""
+    try:
+        # Extract transaction hash
+        tx_hash_match = re.search(r'Transaction Id\s+([a-zA-Z0-9]+)', output_text)
+        tx_hash = tx_hash_match.group(1) if tx_hash_match else "Unknown"
+        
+        # Extract reward information
+        reward_match = re.search(r'Stake evaluated: Score (\d+) achieved, reward ([\d\.]+) NEAR', output_text)
+        no_reward_match = re.search(r'Stake evaluated: Score (\d+) achieved, no reward', output_text)
+        
+        if reward_match:
+            score = int(reward_match.group(1))
+            reward = float(reward_match.group(2))
+            has_reward = True
+        elif no_reward_match:
+            score = int(no_reward_match.group(1))
+            reward = 0.0
+            has_reward = False
+        else:
+            score = None
+            reward = None
+            has_reward = False
+        
+        return {
+            'transaction_hash': tx_hash,
+            'score': score,
+            'reward': reward,
+            'has_reward': has_reward
+        }
+    except Exception as e:
+        logger.error(f"Failed to parse transaction details: {e}")
+        return None
+
+def extract_near_amount_from_output(output_text):
+    """Extract NEAR amount (in yoctoNEAR) from NEAR CLI output."""
+    try:
+        # Look for a quoted number pattern like '3100000000000000000000000'
+        matches = re.search(r'\'(\d+)\'', output_text)
+        if matches:
+            return int(matches.group(1))
+            
+        # If we can't find a quoted number, try to find any number sequence
+        matches = re.search(r'(\d+)', output_text)
+        if matches:
+            return int(matches.group(1))
+            
+        return None
+    except ValueError as e:
+        logger.error(f"Failed to parse NEAR amount: {e}")
+        return None
 
 @click.group()
 @click.version_option(package_name="agent-arcade")
@@ -219,159 +327,95 @@ def stats():
 
 @cli.command()
 @click.argument('game')
-@click.argument('model-path', type=click.Path(exists=True))
-@click.option('--episodes', default=20, help='Number of evaluation episodes')
-@click.option('--render/--no-render', default=True, help='Render evaluation episodes')
-@click.option('--verbose', default=1, help='Verbosity level')
-def test_evaluate(game: str, model_path: str, episodes: int = 20, render: bool = True, verbose: int = 1):
-    """Test evaluate a trained model without requiring login."""
-    game_info = get_game_info(game)
-    if not game_info:
-        logger.error(f"Game {game} not found")
-        return
-    
+@click.option('--model', help='Path to model file')
+@click.option('--episodes', default=10, help='Number of episodes to evaluate')
+@click.option('--seed', default=42, help='Random seed')
+@click.option('--render/--no-render', default=False, help='Render evaluation environment')
+@click.option('--deterministic/--non-deterministic', default=True, help='Use deterministic actions for evaluation')
+def evaluate(game: str, model: Optional[str], episodes: int, seed: int, render: bool, deterministic: bool):
+    """Evaluate a trained model."""
     try:
-        result = game_info.evaluate(
-            model_path=Path(model_path),
+        # Configure SDL video driver for rendering if needed
+        if render:
+            import platform
+            import os
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                os.environ['SDL_VIDEODRIVER'] = 'cocoa'
+                logger.debug("Set SDL_VIDEODRIVER to 'cocoa' for macOS rendering")
+            elif system == "Linux":
+                # X11 is typically used on Linux
+                os.environ['SDL_VIDEODRIVER'] = 'x11'
+                logger.debug("Set SDL_VIDEODRIVER to 'x11' for Linux rendering")
+            # Windows typically uses directx by default, no need to set
+            
+            logger.info(f"Rendering enabled. SDL_VIDEODRIVER={os.environ.get('SDL_VIDEODRIVER', 'default')}")
+
+        # Check if game exists
+        games = get_registered_games()
+        if game not in games:
+            click.echo(f"Game {game} not found")
+            return
+
+        # Find the model file
+        model_path = None
+        if model:
+            model_path = Path(model)
+        else:
+            # Try to find a model in the default locations
+            possible_locations = [
+                Path(f"models/{game}/baseline/{game}_fullTrain_latest.zip"),  # Latest full training model
+                Path(f"models/{game}/baseline/final_model.zip"),              # Legacy path
+                Path(f"models/{game}/demo/{game}_demo_latest.zip"),           # Latest demo model
+            ]
+            
+            for loc in possible_locations:
+                if loc.exists():
+                    model_path = loc
+                    logger.info(f"Using model found at: {model_path}")
+                    break
+                    
+            if not model_path:
+                click.echo(f"No model found for {game}. Please specify a model path.")
+                return
+        
+        if not model_path.exists():
+            click.echo(f"Model file {model_path} not found")
+            return
+
+        # Get game instance and evaluate
+        game_instance = get_game(game)
+        evaluation_results = game_instance.evaluate(
+            model_path=str(model_path),
             episodes=episodes,
-            record=render
+            seed=seed,
+            render=render,
+            deterministic=deterministic
+        )
+
+        # Display results
+        click.echo("\nEvaluation Results:")
+        click.echo(f"Game: {game}")
+        click.echo(f"Model: {model_path}")
+        click.echo(f"Episodes: {episodes}")
+        click.echo(f"Mean Score: {evaluation_results.mean_reward:.2f}")
+        click.echo(f"Success Rate: {evaluation_results.success_rate * 100:.1f}%")
+        
+        # Staking analysis
+        staking_analysis = analyze_staking(
+            success_rate=evaluation_results.success_rate,
+            mean_score=evaluation_results.mean_reward,
+            game_info=game_instance.get_game_info()
         )
         
-        click.echo(f"\nEvaluation Results for {game}:")
-        click.echo("-" * 80)
-        click.echo(f"Average Score: {result.score:.2f}")
-        click.echo(f"Best Score: {result.best_episode_score:.2f}")
-        click.echo(f"Success Rate: {result.success_rate*100:.1f}%")
-        click.echo(f"Average Episode Length: {result.avg_episode_length:.1f}")
-        click.echo(f"Episodes: {result.episodes}")
-    
+        click.echo("\nStaking Analysis:")
+        click.echo(f"Risk Level: {staking_analysis.risk_level}")
+        click.echo(f"Recommendation: {staking_analysis.recommendation}")
+        
+        return evaluation_results
     except Exception as e:
         logger.error(f"Evaluation failed: {e}")
         raise
-
-@cli.command()
-@click.argument('game')
-@click.argument('model-path', type=click.Path(exists=True))
-@click.option('--episodes', default=100, help='Number of evaluation episodes')
-@click.option('--render/--no-render', default=False, help='Render evaluation episodes')
-@click.option('--record/--no-record', default=False, help='Record videos of evaluation')
-@click.option('--frame-stack', type=int, help='Override frame stack size (default: from metadata or 16)')
-def evaluate(game: str, model_path: str, episodes: int, render: bool, record: bool, frame_stack: Optional[int]):
-    """Evaluate a trained model and record to leaderboard."""
-    if not wallet.is_logged_in():
-        logger.error("Must be logged in to evaluate models")
-        return
-    
-    try:
-        # Get game config to show target scores
-        cmd = [
-            'near', 'contract', 'call-function',
-            'as-read-only',
-            wallet.config.contract_id,
-            'get_game_config',
-            'json-args', f'{{"game": "{game}"}}',
-            'network-config', wallet.config.network,
-            'now'
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        game_config = None
-        if result.returncode == 0:
-            game_config = json.loads(result.stdout.strip())
-    
-        games = get_registered_games()
-        if game not in games:
-            logger.error(f"Game {game} not found")
-            return
-        
-        game_info = get_game_info(game)
-        
-        # Create evaluation config with game-specific settings
-        config = EvaluationConfig(
-            game_id=game,
-            n_eval_episodes=episodes,
-            render=render,
-            frame_stack=frame_stack,
-            mode="staking"
-        )
-        
-        try:
-            env = game_info.make_env(config=config)
-            logger.debug(f"Created environment with observation space: {env.observation_space}")
-        except Exception as e:
-            logger.error(f"Failed to create environment: {e}")
-            raise
-            
-        try:
-            model = game_info.load_model(model_path)
-            logger.debug(f"Loaded model with policy: {model.policy}")
-        except Exception as e:
-            logger.error(f"Failed to load model: {e}")
-            raise
-        
-        pipeline = EvaluationPipeline(
-            game=game,
-            env=env,
-            model=model,
-            wallet=wallet,
-            leaderboard_manager=leaderboard_manager,
-            config=config
-        )
-        
-        try:
-            result = pipeline.run_and_record(Path(model_path))
-            
-            click.echo(f"\nEvaluation Results for {game}:")
-            click.echo("-" * 80)
-            click.echo(f"Mean Score: {result.mean_reward:.2f} ± {result.std_reward:.2f}")
-            click.echo(f"Success Rate: {result.success_rate*100:.1f}%")
-            click.echo(f"Episodes: {result.n_episodes}")
-            
-            click.echo(f"\nEnvironment Settings:")
-            click.echo(f"Frame Stack: {result.metadata['frame_stack']}")
-            click.echo(f"Frame Skip: {result.metadata['frame_skip']}")
-            click.echo(f"Sticky Actions: {result.metadata['sticky_actions']}")
-            click.echo(f"Observation Size: {result.metadata['observation_size']}")
-            
-            if result.staking_metrics:
-                click.echo(f"\nStaking Analysis:")
-                click.echo(f"Confidence Score: {result.staking_metrics['confidence_score']:.2f}")
-                click.echo(f"Risk Level: {result.staking_metrics['risk_level']}")
-                click.echo(f"Recommended Stake: {result.staking_metrics['recommended_stake']:.2f} NEAR")
-                click.echo(f"Expected Multiplier: {result.staking_metrics['expected_multiplier']:.1f}x")
-                click.echo(f"Stability Score: {result.staking_metrics['stability_score']:.2f}")
-                click.echo(f"\nTarget Scores:")
-                click.echo(f"Minimum Target: {result.staking_metrics['min_target_score']:.1f}")
-                click.echo(f"Optimal Target: {result.staking_metrics['optimal_target_score']:.1f}")
-                
-                # Get staking recommendation
-                recommendation = result.get_staking_recommendation()
-                click.echo(f"\nRecommendation: {recommendation['recommended_action'].replace('_', ' ').title()}")
-                click.echo(f"Reasoning: {recommendation['reasoning']}")
-            
-            if game_config:
-                click.echo("\nContract Settings:")
-                click.echo(f"Min Score: {game_config['min_score']}")
-                click.echo(f"Max Score: {game_config['max_score']}")
-                click.echo(f"Max Multiplier: {game_config['max_multiplier']}x")
-            
-            rank = leaderboard_manager.get_leaderboard(game).get_player_rank(wallet.config.account_id)
-            if rank:
-                click.echo(f"\nCurrent Rank: {rank}")
-        
-        except Exception as e:
-            logger.error(f"Evaluation failed: {e}")
-            import traceback
-            logger.error(f"Traceback:\n{traceback.format_exc()}")
-        finally:
-            env.close()
-            
-    except Exception as e:
-        logger.error(f"Evaluation setup failed: {e}")
-        import traceback
-        logger.error(f"Traceback:\n{traceback.format_exc()}")
-        if 'env' in locals():
-            env.close()
 
 @cli.group()
 def pool():
@@ -394,16 +438,14 @@ def fund(amount: float):
         yocto_amount = str(int(amount * 1e24))
         
         cmd = [
-            'near', 'contract', 'call-function',
-            'as-transaction',
+            'near', 'call',
             wallet.config.contract_id,
             'fund_pool',
-            'json-args', '{}',
-            'prepaid-gas', '100 TGas',
-            'attached-deposit', f'{amount} NEAR',
-            'sign-as', wallet.config.account_id,
-            'network-config', wallet.config.network,
-            'sign-with-keychain', 'send'
+            '{}',
+            '--accountId', wallet.config.account_id,
+            '--networkId', wallet.config.network,
+            '--amount', f'{amount}',
+            '--gas', '100000000000000'
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -424,23 +466,32 @@ def balance():
         return
     
     try:
+        logger.info(f"Using NEAR {wallet.config.network} network with contract {wallet.config.contract_id}")
         cmd = [
-            'near', 'contract', 'call-function',
-            'as-read-only',
+            'near', 'call',
             wallet.config.contract_id,
             'get_pool_balance',
-            'json-args', '{}',
-            'network-config', wallet.config.network,
-            'now'
+            '{}',
+            '--accountId', wallet.config.account_id,
+            '--networkId', wallet.config.network
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
-            # Parse the yoctoNEAR amount from the result and convert to NEAR
-            balance_yocto = json.loads(result.stdout.strip())
-            balance_near = float(balance_yocto) / 1e24
-            logger.info(f"Current pool balance: {balance_near:.2f} NEAR")
+            try:
+                # Use helper function to extract amount
+                balance_yocto = extract_near_amount_from_output(result.stdout)
+                if balance_yocto:
+                    balance_near = float(balance_yocto) / 1e24
+                    logger.info(f"Current pool balance: {balance_near:.2f} NEAR ({wallet.config.network} network)")
+                    logger.info(f"Contract ID: {wallet.config.contract_id}")
+                else:
+                    logger.error("Failed to extract pool balance from response")
+                    logger.error(f"Raw output: {result.stdout}")
+            except ValueError as e:
+                logger.error(f"Failed to parse pool balance: {e}")
+                logger.error(f"Raw output: {result.stdout}")
         else:
             logger.error(f"Failed to get pool balance: {result.stderr}")
             
@@ -470,13 +521,12 @@ def place(game: str, model: str, amount: float, target_score: float, evaluate: b
     try:
         # Verify game exists and get config
         cmd = [
-            'near', 'contract', 'call-function',
-            'as-read-only',
+            'near', 'call',
             wallet.config.contract_id,
             'get_game_config',
-            'json-args', f'{{"game": "{game}"}}',
-            'network-config', wallet.config.network,
-            'now'
+            f'{{"game": "{game}"}}',
+            '--accountId', wallet.config.account_id,
+            '--networkId', wallet.config.network
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -484,12 +534,18 @@ def place(game: str, model: str, amount: float, target_score: float, evaluate: b
             logger.error(f"Failed to get game config: {result.stderr}")
             return
             
-        game_config = json.loads(result.stdout.strip())
+        # Use helper function to parse game config
+        game_config = parse_game_config_from_output(result.stdout.strip())
+        if not game_config:
+            logger.error(f"Could not parse game config for {game}")
+            logger.error(f"Raw output: {result.stdout}")
+            return
+            
         if not game_config:
             logger.error(f"Game {game} not registered")
             return
             
-        # Validate stake parameters
+        # Continue with validation checks
         if target_score < game_config['min_score'] or target_score > game_config['max_score']:
             logger.error(f"Target score must be between {game_config['min_score']} and {game_config['max_score']}")
             return
@@ -513,7 +569,8 @@ def place(game: str, model: str, amount: float, target_score: float, evaluate: b
                 record=False
             )
             
-            mean_score = result.score
+            # Fix: Ensure score is a regular Python float, not a NumPy scalar
+            mean_score = float(result.mean_reward)
             logger.info(f"\nQuick Evaluation Results:")
             logger.info(f"Mean Score: {mean_score:.2f}")
             logger.info(f"Target Score: {target_score}")
@@ -534,16 +591,14 @@ def place(game: str, model: str, amount: float, target_score: float, evaluate: b
         
         # Place stake
         cmd = [
-            'near', 'contract', 'call-function',
-            'as-transaction',
+            'near', 'call',
             wallet.config.contract_id,
             'place_stake',
-            'json-args', f'{{"game": "{game}", "target_score": {target_score}}}',
-            'prepaid-gas', '100 TGas',
-            'attached-deposit', f'{amount} NEAR',
-            'sign-as', wallet.config.account_id,
-            'network-config', wallet.config.network,
-            'sign-with-keychain', 'send'
+            f'{{"game": "{game}", "target_score": {target_score}}}',
+            '--accountId', wallet.config.account_id,
+            '--networkId', wallet.config.network,
+            '--amount', f'{amount}',
+            '--gas', '100000000000000'
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -557,10 +612,123 @@ def place(game: str, model: str, amount: float, target_score: float, evaluate: b
             logger.info("2. Submit your score when ready:")
             logger.info(f"   agent-arcade stake submit {game} <achieved_score>")
         else:
-            logger.error(f"Failed to place stake: {result.stderr}")
+            # Enhanced error detection for common contract errors
+            if "Rate limit: Too soon to place new stake" in result.stderr or "Rate limit" in result.stderr:
+                logger.error("⚠️ Rate limit reached: The contract prevents placing stakes too frequently")
+                logger.error("Wait at least 24 hours between stakes or try with a different account")
+            elif "already has an active stake" in result.stderr:
+                logger.error("⚠️ You already have an active stake. You must complete or cancel it before placing a new one.")
+                logger.error("Check your current stake with: agent-arcade stake view")
+            else:
+                logger.error(f"Failed to place stake: {result.stderr}")
             
     except Exception as e:
         logger.error(f"Failed to place stake: {e}")
+
+@stake.command()
+@click.argument('game')
+def game_config(game: str):
+    """View game configuration including min score, max score, and minimum stake."""
+    if not wallet.is_logged_in():
+        logger.error("Must be logged in to view game configuration")
+        return
+    
+    logger.info(f"Using NEAR {wallet.config.network} network with contract {wallet.config.contract_id}")
+    cmd = [
+        'near', 'call',
+        wallet.config.contract_id,
+        'get_game_config',
+        f'{{"game": "{game}"}}',
+        '--accountId', wallet.config.account_id,
+        '--networkId', wallet.config.network
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        logger.info(f"Game configuration for {game}:")
+        logger.info("-" * 80)
+        logger.info(result.stdout.strip())
+        
+        # Try to extract key values with our helper function
+        game_config = parse_game_config_from_output(result.stdout)
+        
+        if game_config:
+            min_stake_near = float(game_config['min_stake']) / 1e24
+            logger.info(f"\nKey parameters:")
+            logger.info(f"Min Score: {game_config['min_score']}")
+            logger.info(f"Max Score: {game_config['max_score']}")
+            logger.info(f"Min Stake: {min_stake_near:.2f} NEAR")
+            logger.info(f"Max Multiplier: {game_config['max_multiplier']}x")
+    else:
+        logger.error(f"Failed to get game config: {result.stderr}")
+
+def _get_verification_token(game: str, score: float) -> Optional[dict]:
+    """Retrieve verification token for a given game and score.
+    
+    Args:
+        game: Game name
+        score: Achieved score
+        
+    Returns:
+        Verification token dictionary or None if not found
+    """
+    token_dir = Path.home() / '.agent-arcade' / 'verification_tokens'
+    if not token_dir.exists():
+        return None
+    
+    # Find the most recent token for the given game and approximate score
+    matching_files = list(token_dir.glob(f"{game}_*.json"))
+    
+    # Sort by modification time (most recent first)
+    matching_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    # Check each file for a matching score (allowing small floating point differences)
+    for file_path in matching_files:
+        try:
+            with open(file_path, 'r') as f:
+                token = json.load(f)
+                # Get token score - could be stored under 'score' or 'mean_reward' depending on version
+                token_score = token['data'].get('score')
+                
+                if token_score is not None and abs(token_score - score) < 0.01:  # Allow small difference
+                    return token
+        except (json.JSONDecodeError, KeyError):
+            continue
+    
+    return None
+
+def _validate_verification_token(token: dict, wallet) -> bool:
+    """Validate a verification token using HMAC-SHA256.
+    
+    Args:
+        token: Verification token dictionary
+        wallet: NEARWallet instance
+        
+    Returns:
+        True if token is valid, False otherwise
+    """
+    # Extract data and signature
+    data = token['data']
+    provided_signature = token['signature']
+    
+    # Get the secret key
+    secret_key = wallet.get_secret_key()
+    if not secret_key:
+        logger.error("No secret key found for verification")
+        return False
+    
+    # Recreate the signature using the same method
+    message = f"{data['game']}:{data['account_id']}:{data['score']:.4f}:{data['timestamp']}:{data['nonce']}"
+    
+    # Generate HMAC
+    expected_signature = hmac.new(
+        secret_key.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Check if signatures match
+    return hmac.compare_digest(provided_signature, expected_signature)
 
 @stake.command()
 @click.argument('game')
@@ -572,15 +740,41 @@ def submit(game: str, score: float):
         return
     
     try:
+        # Verify the token exists for this score
+        verification_token = _get_verification_token(game, score)
+        if not verification_token:
+            logger.error("No verification token found for this score.")
+            logger.error("You must run an evaluation first:")
+            logger.error(f"  agent-arcade evaluate {game} --model <your_model> --episodes 50")
+            return
+        
+        # Validate the token
+        is_valid = _validate_verification_token(verification_token, wallet)
+        if not is_valid:
+            logger.error("Invalid verification token. Score may have been tampered with.")
+            logger.error("Run a new evaluation to generate a valid verification token.")
+            return
+        
+        # Token is valid, check for token expiry (optional)
+        token_timestamp = verification_token['data']['timestamp']
+        current_time = int(datetime.now().timestamp())
+        hours_old = (current_time - token_timestamp) / 3600
+        
+        if hours_old > 24:  # Token is more than 24 hours old
+            logger.warning(f"Verification token is {int(hours_old)} hours old.")
+            if not click.confirm("Continue with this older verification?"):
+                logger.info("Submission cancelled. Run a new evaluation to generate a fresh token.")
+                return
+                
         # Verify active stake exists
+        logger.info("Checking for active stake...")
         cmd = [
-            'near', 'contract', 'call-function',
-            'as-read-only',
+            'near', 'call',
             wallet.config.contract_id,
             'get_stake',
-            'json-args', f'{{"account_id": "{wallet.config.account_id}"}}',
-            'network-config', wallet.config.network,
-            'now'
+            f'{{"account_id": "{wallet.config.account_id}"}}',
+            '--accountId', wallet.config.account_id,
+            '--networkId', wallet.config.network
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -588,34 +782,84 @@ def submit(game: str, score: float):
             logger.error(f"Failed to get stake info: {result.stderr}")
             return
             
-        stake_info = json.loads(result.stdout.strip())
+        # Use helper function to parse stake info
+        stake_info = parse_stake_info_from_output(result.stdout)
         if not stake_info:
-            logger.error("No active stake found")
+            logger.error("No active stake found or could not parse stake info")
+            logger.error(f"Raw output: {result.stdout}")
             return
             
         if stake_info['game'] != game:
             logger.error(f"Active stake is for {stake_info['game']}, not {game}")
             return
         
-        # Submit score
+        # Display stake info before submission
+        stake_amount = float(int(stake_info['amount']) / 1e24)
+        target_score = stake_info['target_score']
+        logger.info("-" * 60)
+        logger.info(f"Submitting score for evaluation:")
+        logger.info(f"Game: {game}")
+        logger.info(f"Your staked amount: {stake_amount:.4f} NEAR")
+        logger.info(f"Your target score: {target_score}")
+        logger.info(f"Your achieved score: {score}")
+        logger.info("-" * 60)
+        logger.info("Processing transaction on NEAR blockchain...")
+        logger.info("This may take a few moments...")
+            
+        # Submit score - convert float score to integer for the contract
         cmd = [
-            'near', 'contract', 'call-function',
-            'as-transaction',
+            'near', 'call',
             wallet.config.contract_id,
             'evaluate_stake',
-            'json-args', f'{{"achieved_score": {score}}}',
-            'prepaid-gas', '100 TGas',
-            'attached-deposit', '0 NEAR',
-            'sign-as', wallet.config.account_id,
-            'network-config', wallet.config.network,
-            'sign-with-keychain', 'send'
+            f'{{"achieved_score": {int(score)}}}',
+            '--accountId', wallet.config.account_id,
+            '--networkId', wallet.config.network,
+            '--gas', '100000000000000'
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
-            logger.info(f"Successfully submitted score of {score} for {game}")
+            # Record score in local leaderboard as well
+            if leaderboard_manager:
+                # Extract verification token data
+                token_data = verification_token['data']
+                success_rate = 1.0  # Default to 100% success for now
+                episodes = token_data.get('episodes', 50)
+                model_path = ""  # We don't know which model was used
+                
+                leaderboard_manager.record_score(
+                    game_name=game,
+                    account_id=wallet.config.account_id,
+                    score=score,
+                    success_rate=success_rate,
+                    episodes=episodes,
+                    model_path=model_path
+                )
+                logger.info(f"Score recorded in local leaderboard")
+            
+            # Parse transaction details
+            tx_details = parse_transaction_details_from_output(result.stdout)
+            
+            # Display transaction results
+            logger.info("-" * 60)
+            logger.info("✅ Transaction completed successfully!")
+            logger.info("-" * 60)
+            
+            if tx_details:
+                logger.info(f"Transaction Hash: {tx_details['transaction_hash']}")
+                
+                if tx_details['has_reward']:
+                    logger.info(f"🎉 Congratulations! You earned a reward of {tx_details['reward']:.4f} NEAR")
+                    logger.info(f"Reward has been sent to your wallet: {wallet.config.account_id}")
+                else:
+                    logger.info("Your score was recorded, but did not qualify for a reward.")
+                    logger.info(f"Target score ({target_score}) was not reached with your score of {score}.")
+            
+            logger.info("-" * 60)
+            logger.info("Score has been recorded in both blockchain and local leaderboard")
             logger.info("Check the leaderboard to see your ranking!")
+            logger.info("Run: agent-arcade leaderboard player " + game)
         else:
             logger.error(f"Failed to submit score: {result.stderr}")
             
@@ -630,36 +874,47 @@ def view():
         return
     
     try:
+        logger.info(f"Using NEAR {wallet.config.network} network with contract {wallet.config.contract_id}")
         cmd = [
-            'near', 'contract', 'call-function',
-            'as-read-only',
+            'near', 'call',
             wallet.config.contract_id,
             'get_stake',
-            'json-args', f'{{"account_id": "{wallet.config.account_id}"}}',
-            'network-config', wallet.config.network,
-            'now'
+            f'{{"account_id": "{wallet.config.account_id}"}}',
+            '--accountId', wallet.config.account_id,
+            '--networkId', wallet.config.network
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
-            stake_info = json.loads(result.stdout.strip())
-            
-            if stake_info:
-                # Convert yoctoNEAR to NEAR for display
-                amount_near = float(stake_info['amount']) / 1e24
-                # Convert timestamp to readable format
-                timestamp = datetime.fromtimestamp(int(stake_info['timestamp']) / 1_000_000_000)
-                
-                click.echo("\nCurrent Stake Details:")
-                click.echo("-" * 80)
-                click.echo(f"Game: {stake_info['game']}")
-                click.echo(f"Amount: {amount_near:.2f} NEAR")
-                click.echo(f"Target Score: {stake_info['target_score']}")
-                click.echo(f"Games Played: {stake_info['games_played']}")
-                click.echo(f"Placed: {timestamp}")
-            else:
-                logger.info("No active stake found")
+            try:
+                # Use helper function to parse stake info
+                stake_info = parse_stake_info_from_output(result.stdout)
+                if stake_info:
+                    # Convert yoctoNEAR to NEAR for display
+                    amount_near = float(stake_info['amount']) / 1e24
+                    # Convert timestamp to readable format
+                    readable_time = datetime.fromtimestamp(int(stake_info['timestamp']) / 1_000_000_000)
+                    
+                    click.echo("\nCurrent Stake Details:")
+                    click.echo("-" * 80)
+                    click.echo(f"Game: {stake_info['game']}")
+                    click.echo(f"Amount: {amount_near:.2f} NEAR")
+                    click.echo(f"Target Score: {stake_info['target_score']}")
+                    click.echo(f"Games Played: {stake_info['games_played']}")
+                    click.echo(f"Placed: {readable_time}")
+                else:
+                    # Fallback if parsing fails
+                    if "no stake found" in result.stdout.lower():
+                        logger.info("No active stake found for your account")
+                        logger.info(f"To place a stake, use: agent-arcade stake place <game> --model <path> --amount <near> --target-score <score>")
+                    else:
+                        logger.info("Received stake data (raw format):")
+                        logger.info("-" * 80)
+                        logger.info(result.stdout.strip())
+            except Exception as e:
+                logger.error(f"Failed to parse stake info: {e}")
+                logger.error(f"Raw output: {result.stdout}")
         else:
             logger.error(f"Failed to get stake info: {result.stderr}")
             
@@ -670,11 +925,33 @@ def view():
 @click.argument('game')
 @click.option('--render/--no-render', default=False, help='Render training environment')
 @click.option('--config', type=click.Path(exists=True), help='Path to configuration file')
-@click.option('--output-dir', type=click.Path(), help='Directory to save model (default: models/<game>)')
-@click.option('--checkpoint-freq', type=int, default=100000, help='Save checkpoint every N steps')
+@click.option('--output-dir', type=click.Path(), help='Custom output directory for models')
+@click.option('--checkpoint-freq', default=250000, help='Frequency of saving checkpoints (in timesteps)')
 def train(game: str, render: bool, config: Optional[str], output_dir: Optional[str], checkpoint_freq: int):
     """Train an agent for a specific game."""
     try:
+        # Configure SDL video driver for rendering if needed
+        if render:
+            import platform
+            import os
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                os.environ['SDL_VIDEODRIVER'] = 'cocoa'
+                logger.debug("Set SDL_VIDEODRIVER to 'cocoa' for macOS rendering")
+            elif system == "Linux":
+                # X11 is typically used on Linux
+                os.environ['SDL_VIDEODRIVER'] = 'x11'
+                logger.debug("Set SDL_VIDEODRIVER to 'x11' for Linux rendering")
+            # Windows typically uses directx by default, no need to set
+            
+            logger.info(f"Rendering enabled. SDL_VIDEODRIVER={os.environ.get('SDL_VIDEODRIVER', 'default')}")
+        
+        # Check if game exists
+        games = get_registered_games()
+        if game not in games:
+            click.echo(f"Game {game} not found")
+            return
+        
         # Set default config path if not provided
         if not config:
             default_config = Path(f"models/{game}/config.yaml")
@@ -686,7 +963,13 @@ def train(game: str, render: bool, config: Optional[str], output_dir: Optional[s
         
         # Set default output directory
         if not output_dir:
-            output_dir = f"models/{game}"
+            if render:
+                output_dir = f"models/{game}/demo"
+                logger.info(f"Saving demo model to {output_dir}")
+            else:
+                output_dir = f"models/{game}/baseline"
+                logger.info(f"Saving training model to {output_dir}")
+                
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
@@ -706,10 +989,18 @@ def train(game: str, render: bool, config: Optional[str], output_dir: Optional[s
         logger.info(f"Training complete! Model saved to: {model_path}")
         logger.info("\nNext steps:")
         logger.info("1. Evaluate your model:")
-        logger.info(f"   agent-arcade evaluate {game} --model {model_path}")
+        logger.info(f"   agent-arcade evaluate {game} --model {str(model_path)}")
         logger.info("2. Enter competition:")
-        logger.info(f"   agent-arcade stake place {game} --model {model_path} --amount <NEAR> --target-score <SCORE>")
+        logger.info(f"   agent-arcade stake place {game} --model {str(model_path)} --amount <NEAR> --target-score <SCORE>")
         
+        # Provide info about the latest link
+        model_dir = Path(f"models/{game}/{'demo' if render else 'baseline'}")
+        model_type = "demo" if render else "fullTrain"
+        latest_link = model_dir / f"{game}_{model_type}_latest.zip"
+        if latest_link.exists():
+            logger.info("\nYou can also use the 'latest' link for convenience:")
+            logger.info(f"   agent-arcade evaluate {game} --model {str(latest_link)}")
+            
     except Exception as e:
         logger.error(f"Training failed: {e}")
         raise

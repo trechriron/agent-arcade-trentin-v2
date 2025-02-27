@@ -51,7 +51,7 @@ Our agents use Deep Q-Learning (DQN), a reinforcement learning algorithm that le
 
 Core Requirements:
 
-- **Python**: Version 3.8 - 3.12 (3.13 not yet supported)
+- **Python**: Version 3.8 - 3.11 recommended (3.12 has known issues, 3.13 not supported)
 - **Operating System**: Linux, macOS, or WSL2 on Windows
 - **Storage**: At least 2GB free space
 - **Memory**: At least 4GB RAM recommended
@@ -128,7 +128,16 @@ If you encounter issues during installation:
 
    ```bash
    # Check Python version
-   python3 --version  # Should be between 3.8 and 3.12
+   python3 --version  # Should be between 3.8 and 3.11
+   ```
+
+4. **Python 3.12 Compatibility Issues**
+
+   If using Python 3.12, you may encounter compatibility issues with some dependencies. These include C extension compilation errors and package dependency conflicts. We recommend using Python 3.11 for the most stable experience.
+
+   ```bash
+   # Create a virtual environment with Python 3.11 if available
+   python3.11 -m venv drl-env
    ```
 
 For detailed troubleshooting steps, see [Installation Guide](docs/installation.md).
@@ -160,6 +169,16 @@ agent-arcade train river-raid --checkpoint-freq 50000 --output-dir models/river_
 tensorboard --logdir ./tensorboard/DQN_[game]_[timestamp]
 ```
 
+By default, models are saved to `models/{game_name}/{timestamp}/final_model.zip` and TensorBoard logs to `tensorboard/DQN_{game_name}_{timestamp}/`. The training process:
+
+1. Initializes the environment with game-specific wrappers
+2. Creates a DQN agent with the specified parameters
+3. Trains for the defined number of timesteps (1,000,000 by default)
+4. Saves checkpoints and the final model
+5. Records training metrics for TensorBoard
+
+After training, use the `evaluate` command to assess your model's performance and generate the verification token needed for score submission.
+
 ### Evaluating Agents
 
 > **Important**: You must be logged in with your NEAR wallet before running evaluations:
@@ -179,19 +198,21 @@ agent-arcade evaluate space-invaders models/space_invaders/final_model.zip --ren
 agent-arcade evaluate river-raid models/river_raid/final_model.zip --render --record
 ```
 
+Each evaluation generates a cryptographically signed verification token required for score submission. These tokens ensure score legitimacy and are stored in `~/.agent-arcade/verification_tokens/`.
+
 ### Competition and Staking
 
 ```bash
 # Check wallet status
 agent-arcade wallet-cmd status
 
-# Place stake
-agent-arcade stake place pong \
-  --model models/pong/final_model.zip \
-  --amount 10 \
-  --target-score 15
+# First evaluate to generate verification token
+agent-arcade evaluate pong models/pong/final_model.zip --episodes 50
 
-# View leaderboard
+# Then submit your verified score (uses the token from evaluation)
+agent-arcade stake submit pong 15
+
+# View leaderboard (shows both local and blockchain scores)
 agent-arcade leaderboard top pong
 
 # View recent games
@@ -207,17 +228,32 @@ agent-arcade leaderboard stats
 agent-arcade pool balance
 ```
 
+Successful score submissions will:
+
+- Record your score on both the blockchain and local leaderboard
+- Process any rewards automatically if your score meets or exceeds your target
+- Display transaction details including reward amount and transaction ID
+
 ### Training Parameters
 
+The default training configuration can be customized using a YAML file:
+
 ```yaml
-total_timesteps: 1000000
-learning_rate: 0.00025
-buffer_size: 250000
-learning_starts: 50000
-batch_size: 256
-exploration_fraction: 0.2
-target_update_interval: 2000
-frame_stack: 16
+# Core parameters
+total_timesteps: 1000000    # Total environment steps for training
+learning_rate: 0.00025      # Rate at which the model updates its parameters
+buffer_size: 250000         # Size of the replay buffer for experience storage
+learning_starts: 50000      # Environment steps before learning begins
+batch_size: 256             # Number of experiences per gradient update
+exploration_fraction: 0.2   # Fraction of training spent on exploration
+target_update_interval: 2000 # Steps between target network updates
+frame_stack: 16             # Number of frames stacked as observation
+```
+
+You can create a custom config file and specify it with `--config`:
+
+```bash
+agent-arcade train pong --config my_custom_config.yaml
 ```
 
 ### Performance Optimizations
@@ -262,6 +298,28 @@ Each game directory contains:
 - `checkpoints/`: Saved model checkpoints during training
 - `final_model.zip`: Best performing model
 
+### Complete End-to-End Workflow
+
+```bash
+# 1. Login with your NEAR wallet
+agent-arcade wallet-cmd login
+
+# 2. Train your agent
+agent-arcade train pong --timesteps 1000000
+
+# 3. Evaluate the trained model (generates verification token)
+agent-arcade evaluate pong models/pong/[timestamp]/final_model.zip --episodes 50
+
+# 4. Submit your verified score to the competition
+agent-arcade stake submit pong 15
+
+# 5. Check your position on the leaderboard
+agent-arcade leaderboard top pong
+
+# 6. View your rewards and wallet balance
+agent-arcade wallet-cmd status
+```
+
 ## 💎 NEAR Integration (Optional)
 
 The NEAR integration allows you to stake tokens on your agent's performance and compete for rewards. Our staking contract is written in Rust and is already deployed on testnet. To keep the repository lightweight, compiled artifacts (including the generated WASM) are ignored from version control.
@@ -289,7 +347,7 @@ If you want to build the contract locally (for testing or to deploy your own ver
 
 ### Using the Deployed Contract
 
-Since our staking contract is already deployed on NEAR testnet, you can use the provided NEAR CLI commands to interact with it:
+Since our staking contract is already deployed on NEAR testnet, you can use the provided CLI commands to interact with it:
 
 ```bash
 # Check your wallet status
@@ -297,7 +355,15 @@ agent-arcade wallet-cmd status
 
 # Place a stake on your agent
 agent-arcade stake place pong --model models/pong/final_model.zip --amount 10 --target-score 15
+
+# After evaluating your model
+agent-arcade evaluate pong models/pong/final_model.zip --episodes 50
+
+# Submit your verified score (requires evaluation token)
+agent-arcade stake submit pong 15
 ```
+
+Scores are recorded both onchain and in your local leaderboard. The system uses cryptographic verification to ensure score legitimacy, and all rewards are automatically processed during submission.
 
 See the [Competition Guide](docs/competition-guide.md) for more details.
 
