@@ -739,11 +739,11 @@ class EvaluationPipeline:
             Hexadecimal signature string
         """
         # Get or create a secret key from wallet config
-        secret_key = self.wallet.config.get_secret_key()
+        secret_key = self.wallet.get_secret_key()
         if not secret_key:
             # Generate and save a new secret key if not exists
             secret_key = secrets.token_hex(32)
-            self.wallet.config.save_secret_key(secret_key)
+            self.wallet.save_secret_key(secret_key)
         
         # Create a deterministic string representation of the data
         message = f"{data['game']}:{data['account_id']}:{data['score']:.4f}:{data['timestamp']}:{data['nonce']}"

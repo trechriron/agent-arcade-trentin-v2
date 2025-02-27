@@ -402,8 +402,8 @@ class RiverraidGame(GameInterface):
             
         # Evaluate model performance
         result = self.evaluate(model_path, episodes=10)
-        if result.score < target_score:
-            raise ValueError(f"Model performance ({result.score:.2f}) below target score ({target_score:.2f})")
+        if result.mean_reward < target_score:
+            raise ValueError(f"Model performance ({result.mean_reward:.2f}) below target score ({target_score:.2f})")
             
         # Create stake record
         record = StakeRecord(
@@ -411,7 +411,7 @@ class RiverraidGame(GameInterface):
             model_path=str(model_path),
             amount=amount,
             target_score=target_score,
-            current_score=result.score
+            current_score=result.mean_reward
         )
         
         # Submit stake transaction
