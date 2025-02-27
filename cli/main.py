@@ -8,6 +8,8 @@ import subprocess
 import json
 from datetime import datetime
 import re
+import hmac
+import hashlib
 
 # Optional NEAR imports
 try:
@@ -660,6 +662,71 @@ def game_config(game: str):
     else:
         logger.error(f"Failed to get game config: {result.stderr}")
 
+def _get_verification_token(game: str, score: float) -> Optional[dict]:
+    """Retrieve verification token for a given game and score.
+    
+    Args:
+        game: Game name
+        score: Achieved score
+        
+    Returns:
+        Verification token dictionary or None if not found
+    """
+    token_dir = Path.home() / '.agent-arcade' / 'verification_tokens'
+    if not token_dir.exists():
+        return None
+    
+    # Find the most recent token for the given game and approximate score
+    matching_files = list(token_dir.glob(f"{game}_*.json"))
+    
+    # Sort by modification time (most recent first)
+    matching_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    # Check each file for a matching score (allowing small floating point differences)
+    for file_path in matching_files:
+        try:
+            with open(file_path, 'r') as f:
+                token = json.load(f)
+                if abs(token['data']['score'] - score) < 0.01:  # Allow small difference
+                    return token
+        except (json.JSONDecodeError, KeyError):
+            continue
+    
+    return None
+
+def _validate_verification_token(token: dict, wallet) -> bool:
+    """Validate a verification token using HMAC-SHA256.
+    
+    Args:
+        token: Verification token dictionary
+        wallet: NEARWallet instance
+        
+    Returns:
+        True if token is valid, False otherwise
+    """
+    # Extract data and signature
+    data = token['data']
+    provided_signature = token['signature']
+    
+    # Get the secret key
+    secret_key = wallet.get_secret_key()
+    if not secret_key:
+        logger.error("No secret key found for verification")
+        return False
+    
+    # Recreate the signature using the same method
+    message = f"{data['game']}:{data['account_id']}:{data['score']:.4f}:{data['timestamp']}:{data['nonce']}"
+    
+    # Generate HMAC
+    expected_signature = hmac.new(
+        secret_key.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Check if signatures match
+    return hmac.compare_digest(provided_signature, expected_signature)
+
 @stake.command()
 @click.argument('game')
 @click.argument('score', type=float)
@@ -670,6 +737,32 @@ def submit(game: str, score: float):
         return
     
     try:
+        # Verify the token exists for this score
+        verification_token = _get_verification_token(game, score)
+        if not verification_token:
+            logger.error("No verification token found for this score.")
+            logger.error("You must run an evaluation first:")
+            logger.error(f"  agent-arcade evaluate {game} --model <your_model> --episodes 50")
+            return
+        
+        # Validate the token
+        is_valid = _validate_verification_token(verification_token, wallet)
+        if not is_valid:
+            logger.error("Invalid verification token. Score may have been tampered with.")
+            logger.error("Run a new evaluation to generate a valid verification token.")
+            return
+        
+        # Token is valid, check for token expiry (optional)
+        token_timestamp = verification_token['data']['timestamp']
+        current_time = int(datetime.now().timestamp())
+        hours_old = (current_time - token_timestamp) / 3600
+        
+        if hours_old > 24:  # Token is more than 24 hours old
+            logger.warning(f"Verification token is {int(hours_old)} hours old.")
+            if not click.confirm("Continue with this older verification?"):
+                logger.info("Submission cancelled. Run a new evaluation to generate a fresh token.")
+                return
+                
         # Verify active stake exists
         logger.info("Checking for active stake...")
         cmd = [
@@ -726,11 +819,11 @@ def submit(game: str, score: float):
         if result.returncode == 0:
             # Record score in local leaderboard as well
             if leaderboard_manager:
-                # Use default values for success_rate and episodes since we don't have that data
-                # from the contract submission
-                success_rate = 1.0  # Assume 100% success for stake submissions
-                episodes = 50       # Use minimum recommended episodes
-                model_path = ""     # We don't know which model was used
+                # Extract verification token data
+                token_data = verification_token['data']
+                success_rate = 1.0  # Default to 100% success for now
+                episodes = token_data.get('episodes', 50)
+                model_path = ""  # We don't know which model was used
                 
                 leaderboard_manager.record_score(
                     game_name=game,
